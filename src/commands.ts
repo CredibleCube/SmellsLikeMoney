@@ -2,6 +2,7 @@ import { CONFIG, WORLD } from './config';
 import { emit, awardFee, invoiceTotal } from './events';
 import { finalChecks, mixingAllowed, tankTotal } from './simulation';
 import { clearMovement, stationReason, type Station } from './movement';
+import { aimAt, aimNext, resetAim, workSpot } from './work';
 import type { Command, JobState, MoveDirection, Target, Tool } from './types';
 
 const knownTools: Tool[] = ['vacuum', 'wipes', 'inlet', 'mixer', 'hose'];
@@ -79,6 +80,12 @@ export function commandReason(state: JobState, cmd: Command): string | null {
     if (state.paused) return 'Resume the job first.';
     return state.stage === 'INVOICE' ? 'This job is complete. Replay for another run.' : null;
   }
+  if (cmd.type === 'setBoost') {
+    if (typeof cmd.pressed !== 'boolean') return 'Unknown boost input.';
+    if (!cmd.pressed) return null;
+    if (!state.started || state.paused || state.stage === 'INVOICE') return 'Resume a running job to boost.';
+    return state.tool === 'vacuum' ? null : 'Boost is available on the vacuum pump.';
+  }
   if (cmd.type === 'start') return state.started ? 'The job is already started.' : null;
   if (cmd.type === 'pause' || cmd.type === 'resume' || cmd.type === 'stop') return null;
   if (cmd.type === 'setThrottle' || cmd.type === 'setAirBreak') return Number.isFinite(cmd.value) ? null : 'Use a finite slider value.';
@@ -86,6 +93,8 @@ export function commandReason(state: JobState, cmd: Command): string | null {
   if (cmd.type === 'selectTarget') return knownTargets.includes(cmd.target) ? null : 'Unknown target.';
   if (cmd.type === 'selectTool') return toolReason(state, cmd.tool);
   if (state.paused) return 'Resume the job first.';
+  if (cmd.type === 'aim') return Number.isFinite(cmd.x) && Number.isFinite(cmd.y) ? null : 'Aim coordinates must be finite.';
+  if (cmd.type === 'aimNext') return null;
   if (cmd.type === 'interact') return getContextAction(state).reason;
   if (cmd.type === 'toggleActive') return state.active ? null : actionReason(state);
   if (cmd.type === 'openLid') return state.stage === 'SETUP' && !state.lidOpen ? stationReason(state, 'hatch') : 'The lid is already open or the job has moved on.';
@@ -108,16 +117,22 @@ export function commandReason(state: JobState, cmd: Command): string | null {
 }
 
 export function command(state: JobState, cmd: Command): boolean {
+  // Using a tool deliberately plants the worker's feet before range checks.
+  // Airborne feet remain airborne, so this cannot bypass the outside guard.
+  if (cmd.type === 'toggleActive' || cmd.type === 'interact') clearMovement(state);
   const reason = commandReason(state, cmd);
   if (reason) { emit(state, reason, 'warning'); return false; }
   switch (cmd.type) {
     case 'move': {
       const p = state.player;
-      if (cmd.direction === 'up' && cmd.pressed && !p.input.up && p.grounded) p.jumpQueued = true;
+      if (cmd.direction === 'up' && cmd.pressed && !p.input.up) p.jumpQueued = true;
       p.input[cmd.direction] = cmd.pressed;
-      if (cmd.pressed) { state.active = false; state.flow = 0; }
+      if (cmd.pressed) { state.active = false; state.flow = 0; state.work.boost = false; }
       break;
     }
+    case 'aim': aimAt(state, cmd.x, cmd.y); break;
+    case 'aimNext': aimNext(state, !!cmd.reverse); break;
+    case 'setBoost': state.work.boost = cmd.pressed; break;
     case 'interact': {
       const context = getContextAction(state);
       if (context.command.type === 'toggleActive') {
@@ -130,27 +145,29 @@ export function command(state: JobState, cmd: Command): boolean {
     case 'start': clearMovement(state); state.started = true; state.paused = false; emit(state, 'First things first: open the lid and connect the vacuum hose.'); break;
     case 'selectTool': {
       clearMovement(state);
-      state.active = false; state.flow = 0; state.tool = cmd.tool;
+      state.active = false; state.flow = 0; state.work.boost = false; state.tool = cmd.tool;
       state.target = cmd.tool === 'vacuum' ? state.stage === 'SCUM' ? 'surface' : 'liquid' : cmd.tool === 'wipes' ? 'surface' : cmd.tool === 'inlet' ? 'inlet' : cmd.tool === 'mixer' ? 'bottom' : state.stage === 'WASH' || state.stage === 'FINAL_PUMP' ? 'wall0' : 'liquid';
+      resetAim(state);
       break;
     }
-    case 'selectTarget': clearMovement(state); state.active = false; state.flow = 0; state.target = cmd.target; break;
+    case 'selectTarget': clearMovement(state); state.active = false; state.flow = 0; state.work.boost = false; state.target = cmd.target; resetAim(state); break;
     case 'setThrottle': state.throttle = Math.min(1, Math.max(0, cmd.value)); break;
     case 'setAirBreak': state.airBreak = Math.min(1, Math.max(0, cmd.value)); break;
     case 'toggleActive':
       clearMovement(state);
       state.active = !state.active;
-      if (!state.active) state.flow = 0;
+      if (!state.active) { state.flow = 0; state.work.boost = false; }
+      else emit(state, `${state.tool === 'vacuum' ? 'Vacuum running' : state.tool === 'mixer' ? 'Crust buster spinning' : state.tool === 'hose' ? 'Hose spraying' : 'Tool working'}. Sweep across dirty spots; Q selects the next one.`);
       if (state.active && state.tool === 'hose' && state.target.startsWith('wall') && state.stage === 'FINAL_PUMP') state.stage = 'WASH';
       if (state.active && state.tool === 'vacuum' && state.stage === 'WASH') state.stage = 'FINAL_PUMP';
       break;
-    case 'stop': state.active = false; state.flow = 0; break;
-    case 'pause': clearMovement(state); state.paused = true; state.active = false; state.flow = 0; break;
-    case 'resume': clearMovement(state); state.paused = false; state.active = false; state.flow = 0; break;
+    case 'stop': state.active = false; state.flow = 0; state.work.boost = false; break;
+    case 'pause': clearMovement(state); state.paused = true; state.active = false; state.flow = 0; state.work.boost = false; break;
+    case 'resume': clearMovement(state); state.paused = false; state.active = false; state.flow = 0; state.work.boost = false; break;
     case 'openLid': state.lidOpen = true; emit(state, 'Lid open. Stay outside the tank. Connect the vacuum hose.'); break;
     case 'connect': state.connected = true; emit(state, 'Vacuum hose connected.'); break;
     case 'inspect': state.inlet.inspected = true; emit(state, `Inlet T inspected: blockage strength ${state.inlet.initialStrength}. Use the inlet clearing tool.`); break;
-    case 'continueMix': clearMovement(state); state.active = false; state.flow = 0; state.stage = 'MIX'; state.tool = 'mixer'; state.target = 'bottom'; emit(state, 'Mix the settled solids with the crust buster. Keep enough water in the tank.'); break;
+    case 'continueMix': clearMovement(state); state.active = false; state.flow = 0; state.stage = 'MIX'; state.work.boost = false; state.tool = 'mixer'; state.target = 'bottom'; resetAim(state); emit(state, 'Mix the settled solids with the crust buster. Keep enough water in the tank.'); break;
     case 'sayPhrase': state.tutorial.phrase = true; emit(state, 'Smells like money!', 'success'); break;
     case 'stow': clearMovement(state); state.stowed = true; state.connected = false; emit(state, 'Tools stowed. Close the lid to finish the job.', 'success'); break;
     case 'closeLid': clearMovement(state); state.lidClosed = true; state.lidOpen = false; emit(state, 'Lid closed. Ready for the fictional invoice.', 'success'); break;
@@ -170,6 +187,7 @@ function contextTool(state: JobState): { tool: Tool; target: Target } {
   let tool = state.tool;
   if (state.stage === 'SCUM') tool = state.wipes.status === 'approaching' || state.wipes.status === 'in_hose' ? 'wipes' : 'vacuum';
   else if (state.stage === 'INLET') tool = state.inlet.cleared ? 'vacuum' : 'inlet';
+  else if (state.stage === 'DRAWDOWN') return { tool: m.W + 1e-9 < CONFIG.waterMinimum * (m.U + m.M) ? 'hose' : 'vacuum', target: 'liquid' };
   else if (state.stage === 'MIX') tool = mixingAllowed(state) ? 'mixer' : 'hose';
   else if (state.stage === 'SLURRY') tool = m.W + 1e-9 < CONFIG.waterMinimum * m.M ? 'hose' : 'vacuum';
   else if (state.stage === 'WASH' || state.stage === 'FINAL_PUMP') {
@@ -198,10 +216,27 @@ export function getContextAction(state: JobState): ContextAction {
     return { command: { type: 'start' }, label: 'Start job', hint: 'Clock in to take control of the worker.', station, x: WORLD.stations[station].x, reason: 'Start the job first.' };
   }
   if (state.stage === 'INVOICE') return { command: { type: 'invoice' }, label: 'Job complete', hint: 'Replay to take another job.', station, x: WORLD.stations[station].x, reason: 'This job is complete.' };
-  if (state.active) { next = { type: 'stop' }; label = 'Stop tool'; station = state.tool === 'inlet' ? 'inlet' : 'hatch'; }
+  if (state.active) {
+    const spot = workSpot(state);
+    next = { type: 'stop' }; label = 'Stop tool'; station = state.tool === 'inlet' ? 'inlet' : 'hatch';
+    const wipeWarning = state.stage === 'SCUM' && state.wipes.status === 'approaching';
+    if (!wipeWarning && spot.remaining <= CONFIG.epsilon && ['scum','settled','suspended','wall'].includes(spot.kind)) { next = { type: 'aimNext' }; label = 'Next dirty spot'; }
+  }
   else if (state.stage === 'SETUP') { next = { type: state.lidOpen ? 'connect' : 'openLid' }; label = state.lidOpen ? 'Connect hose' : 'Open tank lid'; }
   else if (state.stage === 'INLET' && !state.inlet.inspected) { next = { type: 'inspect' }; label = 'Inspect inlet T'; station = 'inlet'; }
-  else if (state.stage === 'DRAWDOWN') { next = { type: 'continueMix' }; label = 'Continue to mixing'; }
+  else if (state.stage === 'DRAWDOWN') {
+    const solids = state.materials.U + state.materials.M;
+    const tooDry = state.materials.W + 1e-9 < CONFIG.waterMinimum * solids;
+    const tooHigh = state.materials.W > CONFIG.waterBand[1] * solids && solids > 0;
+    if (!tooDry && !tooHigh) { next = { type: 'continueMix' }; label = 'Continue to mixing'; }
+    else {
+      const tool: Tool = tooDry ? 'hose' : 'vacuum';
+      label = tooDry ? 'Add water to recover' : 'Draw down toward the band';
+      const preview = { ...state, tool, target: 'liquid' as Target };
+      reason = actionReason(preview);
+      return { command: { type: 'toggleActive' }, label, station, x: WORLD.stations.hatch.x, reason, hint: reason || `E: ${label}. Space stops the tool.` };
+    }
+  }
   else if (state.stage === 'CLEANUP') {
     next = { type: !state.stowed ? 'stow' : !state.lidClosed ? 'closeLid' : 'invoice' };
     label = !state.stowed ? 'Stow tools' : !state.lidClosed ? 'Close tank lid' : 'Issue invoice';

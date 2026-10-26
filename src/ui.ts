@@ -1,7 +1,8 @@
-import { CONFIG } from './config';
+import { ARCADE, CONFIG } from './config';
 import { actionReason, commandReason, getContextAction, toolReason } from './commands';
 import { finalChecks, recommendedWater, wallTotal } from './simulation';
 import { invoiceTotal } from './events';
+import { hotspots, workSpot } from './work';
 import type { Command, FixtureName, JobState, Stage, Target, Tool } from './types';
 
 export interface Preferences { muted: boolean; reducedMotion: boolean; largeUI: boolean; }
@@ -40,19 +41,19 @@ const stageTitles: Record<Stage, string> = {
 export function instruction(s: JobState): string {
   const m = s.materials;
   if (s.paused) return 'Take a breather. Resume when you’re ready; tools will stay off.';
-  if (s.wipes.status === 'in_hose') return 'Hose clogged. Select Wipe removal, then Clear hose. No material has been lost.';
-  if (s.wipes.status === 'approaching') return 'Wipes incoming! Stop suction and select Wipe removal before they reach the hose. They approach only while suction is running.';
-  if (s.bogged) return 'Pump bogged. Stop to cool, lower the throttle, or open the air break a little.';
+  if (s.wipes.status === 'in_hose') return 'Clogged! Press E to clear the hose. Your recovered material is safe.';
+  if (s.wipes.status === 'approaching') return 'Wipes incoming! Press E to grab them before they reach the hose.';
+  if (s.bogged) return 'Pump needs a breather. Stop suction to cool it, then ease off the Boost.';
   switch (s.stage) {
     case 'SETUP': return s.lidOpen ? 'Connect the vacuum hose. Your boots stay on the grass for this entire job.' : 'Open the lid to see what you’re working with. This is an outside-only job.';
-    case 'SCUM': return 'Vacuum the floating skum. A small air break keeps the pump happy; watch for the wipe cluster.';
+    case 'SCUM': return 'Keep suction on a skum pocket. Sweep the mouse or press Q to chase the next dirty spot.';
     case 'INLET': return !s.inlet.inspected ? 'Walk right to the inlet marker and press E to inspect. Press E again to clear it. Expect a brief surprise.' : !s.inlet.cleared ? 'Start the inlet tool to clear the blockage. The incoming parcel is finite.' : 'The inlet is emptying. If the tank is full, vacuum some liquid to make room.';
     case 'DRAWDOWN': return m.W < 1.5 * (m.U + m.M) ? 'Too dry to mix. Use the garden hose to add water until the minimum is met.' : 'Pump water toward the marked band, then Continue to mixing. You can recover over-draining with the garden hose.';
-    case 'MIX': return m.W < 1.5 * (m.U + m.M) ? 'Not enough water. Select the garden hose and fill to at least 1.5× solids.' : 'Start the crust buster at the bottom. It turns settled solids into a pumpable smoothie.';
-    case 'SLURRY': return m.W < 1.5 * m.M ? 'Mixture too dry. Add water before you resume vacuuming.' : 'Vacuum the mixed slurry. Water and suspended solids leave together; settled solids stay put.';
+    case 'MIX': return m.W < 1.5 * (m.U + m.M) ? 'Too dry: equip the garden hose and add water to the marked minimum.' : 'Bust each bottom clump. Sweep across the floor or press Q for the next clump.';
+    case 'SLURRY': return m.W < 1.5 * m.M ? 'Mixture too dry. Add water before you resume vacuuming.' : 'Chase the slurry clouds with suction. Clear one, then sweep or press Q to move on.';
     case 'WASH': case 'FINAL_PUMP': {
       if (m.W < 1.5 * m.M && m.M > 0 && !finalChecks(s).every(c => c.ok)) return 'Add water before pumping this dry mixture. Then rinse or vacuum as needed.';
-      if (wallTotal(s) > 2 || m.walls.some((v, i) => v > CONFIG.initialWalls[i] * 0.15)) return 'Rinse all four broad wall regions with the garden hose. Switch to vacuum whenever you need room.';
+      if (wallTotal(s) > 2 || m.walls.some((v, i) => v > CONFIG.initialWalls[i] * 0.15)) return 'Spray the dirty wall patches. Sweep along a wall or press Q to find the next patch.';
       return 'Walls look good. Vacuum the washdown until water is ≤5 and total solids are ≤2 units.';
     }
     case 'CLEANUP': return !s.stowed ? 'Clean tank! Walk left to the truck and press E to stow your tools.' : !s.lidClosed ? 'Return to the hatch and press E to close the lid.' : 'Everything is buttoned up. Issue your fictional invoice.';
@@ -64,7 +65,7 @@ export function createUI(h: Handlers) {
   $('app').innerHTML = `
     <header class="masthead"><a class="brand" href="#" aria-label="Smells Like Money home"><span class="brand-mark">S<span>↗</span></span><span>SMELLS LIKE MONEY<span class="brand-sub">SEPTIC CREW / FIELD OPS</span></span></a><nav aria-label="Game settings"><button id="help" class="quiet">How to play <span>?</span></button><button id="mute" class="quiet" aria-pressed="true">Sound off</button><button id="motion" class="quiet" aria-pressed="false">Less motion</button><button id="scale" class="quiet" aria-pressed="false">Larger UI</button><button id="pause" class="pause-button" disabled>Ⅱ <span>Pause</span></button></nav></header>
     <main>
-    <section id="briefing" class="briefing"><div><p class="eyebrow"><span class="live-dot"></span> ONE WORKER. FIVE TOOLS. ONE BIG MESS.</p><h1>Big tools.<br><em>Dirty business.</em></h1><p class="intro-copy">Boots on the ground. Tools in your hands.<br>Walk, jump, aim, and turn one messy tank into a payday.</p></div><div class="job-brief"><p class="eyebrow">MAPLE LANE / FIELD OP 001</p><h2>Operation: Backlog.</h2><p>Take control of the crew. Work the hatch, clear the inlet, and clean every last wall.</p><button class="primary start-button" data-fixture="normal" data-command="start">Clock in <span>↗</span></button><button class="challenge-button" data-fixture="challenge">Try the recovery challenge <span>→</span></button><small>Desktop prototype · no time limit · no real sewage</small></div></section>
+    <section id="briefing" class="briefing"><div><p class="eyebrow"><span class="live-dot"></span> ONE WORKER. FIVE TOOLS. ONE BIG MESS.</p><h1>Big tools.<br><em>Dirty business.</em></h1><p class="intro-copy">Boots on the ground. Tools in your hands.<br>Walk, jump, sweep the mess, and chain cleanups into a payday.</p></div><div class="job-brief"><p class="eyebrow">MAPLE LANE / FIELD OP 001</p><h2>Operation: Backlog.</h2><p>Take control of the crew. Work the hatch, clear the inlet, and clean every last wall.</p><button class="primary start-button" data-fixture="normal" data-command="start">Clock in <span>↗</span></button><button class="challenge-button" data-fixture="challenge">Try the recovery challenge <span>→</span></button><small>One quick job · no time limit · chase your best score</small></div></section>
     <div id="job-banner" class="job-banner" hidden><div><span class="live-dot"></span><span class="eyebrow">FIELD OP ACTIVE</span><span id="fixture-name">THE BACKYARD SPECIAL</span></div><div><span class="job-location">MAPLE LANE · JOB 001</span><span id="elapsed">00:00</span></div></div>
     <div class="workspace"><section class="workbench" aria-label="Interactive tank workspace">
       <div class="scene-header"><div><p class="eyebrow" id="scene-eyebrow">YOUR OFFICE FOR THE DAY</p><h2 id="stage-title">A fresh start. More or less.</h2></div><span id="status-pill" class="status-pill">READY WHEN YOU ARE</span></div>
@@ -88,22 +89,72 @@ export function createUI(h: Handlers) {
     <section id="event-card" class="event-card" hidden><p class="eyebrow">THE LATEST FROM THE TANK</p><p id="event-text" aria-live="polite"></p></section>
     </aside></div>
     <section id="invoice-panel" class="invoice-panel" hidden><div class="invoice-intro"><span class="invoice-seal">✓</span><p class="eyebrow">GOOD COMPANY · SEPTIC SERVICE</p><h2>That’s a wrap.</h2><p>Clean tank. Tidy yard. Honest day’s work.</p><button id="replay" class="primary">Another day, same tank ↗</button><button id="invoice-challenge" class="secondary">Try the recovery challenge</button></div><div class="invoice-paper"><div class="invoice-heading"><div><p class="eyebrow">FICTIONAL INVOICE</p><h3>Service complete.</h3></div><span>NO. 001<br><b>PAID IN PRETEND</b></span></div><div id="invoice-lines"></div><div class="invoice-total"><span>Total game credits</span><strong id="invoice-total">575</strong></div><dl class="invoice-stats"><div><dt>Active job time</dt><dd id="invoice-time"></dd></div><div><dt>Hose water added</dt><dd id="invoice-water"></dd></div><div><dt>Checklist</dt><dd>9 / 9 complete</dd></div></dl><p class="fine-print">Fictional game credits. No real pricing, billing, or payment.</p></div></section>
-    <footer class="page-footer"><span>SMELLS LIKE MONEY <b>FIELD OPS / 002</b></span><span>Cartoon cleanup. Real satisfaction.</span></footer>
+    <footer class="page-footer"><span>SMELLS LIKE MONEY <b>FIELD OPS / 003</b></span><span>Cartoon cleanup. Real satisfaction.</span></footer>
     </main>
     <dialog id="pause-dialog"><div class="dialog-top"><p class="eyebrow">OFF THE CLOCK, FOR A MOMENT</p><span>Ⅱ</span></div><h2>Take a breather.</h2><p>The tank can wait. All tools are off and the job is frozen.</p><p class="notice">No mid-job saves. Reloading returns to the title screen.</p><div class="paused-settings" aria-label="Paused game settings"><button id="pause-mute" class="quiet">Sound off</button><button id="pause-motion" class="quiet">Less motion</button><button id="pause-scale" class="quiet">Larger UI</button></div><button id="resume" class="primary">Back to work →</button><button id="restart" class="secondary">Restart this job</button><button id="pause-help" class="quiet">Read the field guide</button></dialog>
-    <dialog id="help-dialog"><p class="eyebrow">THE FIELD GUIDE</p><h2>A little know-how.</h2><p>Follow the checklist from top to bottom. The instruction below the tank always tells you the next useful step.</p><ol class="help-list"><li><b>Vacuum the skum.</b> Keep a slight air break. Stop and remove the approaching wipes, or clear a clog with the wipe tool.</li><li><b>Inspect and clear the inlet T.</b> It releases one finite parcel. You stay outside.</li><li><b>Manage your water.</b> Draw toward 1.8–2.2× solids. Below 1.5×? Add water with the garden hose.</li><li><b>Mix, then pump.</b> Use the crust buster, celebrate your smoothie, then vacuum the slurry.</li><li><b>Rinse all four walls.</b> Select a region with the garden hose. Vacuum the washdown, stow tools, close the lid, and invoice.</li></ol><p><b>Controls:</b> Click the arena to take control. A/D or Left/Right walk; W or Up jumps; S or Down crouches. Stand near the highlighted work station and press E to interact. Mouse clicks aim and use the equipped tool; Space uses it again, 1–5 switch tools, and Q cycles targets (Shift+Q reverses). Escape pauses. Moving stops your tool. Standard controls keep their native keyboard behavior. Every tool can be click-to-start; no rapid clicking needed.</p><p><b>Recovery challenge:</b> Eight wipes and a tougher inlet. Try a clog, then drain water to 40 before mixing. Add water to recover; nothing forces a restart.</p><p class="notice">Fictional units and prices. Outside-only game abstraction, never equipment or confined-space training. Sound is optional; every cue is captioned.</p><button id="close-help" class="primary">Got it. Let’s work. →</button></dialog>
+    <dialog id="help-dialog"><p class="eyebrow">THE FIELD GUIDE</p><h2>A little know-how.</h2><p>Follow the checklist from top to bottom. The instruction below the tank always tells you the next useful step.</p><ol class="help-list"><li><b>Vacuum the skum.</b> Keep a slight air break. Stop and remove the approaching wipes, or clear a clog with the wipe tool.</li><li><b>Inspect and clear the inlet T.</b> It releases one finite parcel. You stay outside.</li><li><b>Manage your water.</b> Draw toward 1.8–2.2× solids. Below 1.5×? Add water with the garden hose.</li><li><b>Mix, then pump.</b> Use the crust buster, celebrate your smoothie, then vacuum the slurry.</li><li><b>Rinse all four walls.</b> Select a region with the garden hose. Vacuum the washdown, stow tools, close the lid, and invoice.</li></ol><p><b>Controls:</b> Click the arena to take control. A/D or Left/Right walk; W or Up jumps; S or Down crouches. Stand near the highlighted work station and press E to interact. Click a dirty spot to aim and start the equipped tool, then sweep the mouse while it works. Space starts/stops; 1–5 switch tools; Q finds the next dirty spot; hold Shift (or click Boost) for more suction and heat. Escape pauses. Moving stops your tool. Standard controls keep their native keyboard behavior. Clear pockets and patches in a chain for a score combo. Jump for the three optional crew bolts. Every tool can be click-to-start; no rapid clicking needed.</p><p><b>Recovery challenge:</b> Eight wipes and a tougher inlet. Try a clog, then drain water to 40 before mixing. Add water to recover; nothing forces a restart.</p><p class="notice">Fictional units and prices. Outside-only game abstraction, never equipment or confined-space training. Sound is optional; every cue is captioned.</p><button id="close-help" class="primary">Got it. Let’s work. →</button></dialog>
     <dialog id="restart-dialog"><p class="eyebrow">START FRESH?</p><h2>Same yard. Clean slate.</h2><p>This resets all progress, fees, and timers for the current fixture and seed. Your settings stay.</p><button id="confirm-restart" class="primary">Yes, restart the job</button><button id="cancel-restart" class="secondary">Keep this job</button></dialog>
   `;
-  $('playing-controls').insertBefore($('stage-actions'), $('mix-progress'));
+  // One arena and one command dock: all primary controls stay beside the game.
+  const bench = document.querySelector<HTMLElement>('.workbench')!;
+  const controls = $('playing-controls');
+  const canvasWrap = document.querySelector<HTMLElement>('.canvas-wrap')!;
+  const instructionBar = document.querySelector<HTMLElement>('.instruction-bar')!;
+  const toolHeading = document.querySelector<HTMLElement>('.tools-heading')!;
+  const toolGrid = document.querySelector<HTMLElement>('.tool-grid')!;
+  const operation = document.querySelector<HTMLElement>('.operation-row')!;
+  const pumpConsole = document.querySelector<HTMLElement>('.pump-console')!;
+  const loadDial = document.querySelector<HTMLElement>('.load-dial')!;
+  const stageActions = $('stage-actions');
+  const mixProgress = $('mix-progress');
+  const movementHelp = document.querySelector<HTMLElement>('.movement-help')!;
+  const legend = document.querySelector<HTMLElement>('.legend')!;
+  const sceneFooter = document.querySelector<HTMLElement>('.scene-footer')!;
+  const arena = document.createElement('div'); arena.className = 'arena-layout';
+  bench.insertBefore(arena, canvasWrap);
+  controls.className = 'tool-rail';
+  arena.append(controls, canvasWrap);
+  controls.replaceChildren(toolHeading, toolGrid);
+  toolHeading.innerHTML = '<span class="eyebrow">TOOLBELT</span>';
+  const score = document.createElement('div'); score.className = 'arcade-score';
+  score.innerHTML = '<div><small>CREW SCORE</small><strong id="score">0</strong></div><div class="combo-chip"><strong id="combo">1×</strong><small>COMBO</small></div><div><strong id="bolts">0 / 3</strong><small>CREW BOLTS</small></div>';
+  document.querySelector('.scene-header')!.insertBefore(score, $('status-pill'));
+  const dock = $('world-controls'); dock.className = 'command-dock';
+  movementHelp.className = 'movement-hints';
+  movementHelp.innerHTML = '<span><kbd>A</kbd><kbd>D</kbd> / ← → move</span><span><kbd>W</kbd> / ↑ jump · <kbd>S</kbd> / ↓ duck</span><span><kbd>1–5</kbd> equip · mouse sweep · <kbd>Q</kbd> next spot</span><small id="player-status">READY TO WORK</small>';
+  dock.append(...Array.from(operation.children)); operation.remove();
+  const boost = document.createElement('div'); boost.className = 'boost-wrap';
+  boost.innerHTML = '<button id="boost" class="secondary" aria-pressed="false" data-command="setBoost">Shift · Boost</button><small>More flow. More heat.</small>';
+  dock.append(boost);
+  const aimStatus = document.createElement('div'); aimStatus.className = 'aim-status';
+  aimStatus.innerHTML = '<span id="spot-label">Aim at the next dirty spot</span><div><progress id="spot-progress" max="100" value="0" aria-label="Current spot cleared"></progress><b id="spot-percent">0%</b></div>';
+  const nextSpot = document.createElement('button'); nextSpot.id = 'next-spot'; nextSpot.className = 'secondary'; nextSpot.textContent = 'Q · Next spot';
+  instructionBar.append(aimStatus, nextSpot); instructionBar.id = 'live-instruction';
+  const metrics = document.createElement('div'); metrics.className = 'crew-metrics'; metrics.id = 'live-metrics';
+  const advanced = document.createElement('details'); advanced.id = 'advanced-controls'; advanced.className = 'advanced-controls';
+  advanced.innerHTML = '<summary>Manual actions, pump tuning &amp; material ledger <span>+</span></summary><div class="advanced-body"></div>';
+  advanced.querySelector('.advanced-body')!.append(stageActions, pumpConsole, document.querySelector('.material-list')!, mixProgress);
+  metrics.append(loadDial, $('water-card'));
+  const reward = document.createElement('p'); reward.id = 'reward-echo'; reward.className = 'reward-echo'; reward.setAttribute('aria-live','polite');
+  sceneFooter.replaceChildren(movementHelp);
+  bench.insertBefore(dock, legend); bench.insertBefore(instructionBar, legend); bench.insertBefore(metrics, legend); bench.insertBefore(reward, legend);
+  bench.insertBefore(advanced, sceneFooter);
+  const invoiceAwards = document.createElement('div'); invoiceAwards.className = 'invoice-awards';
+  invoiceAwards.innerHTML = '<p class="eyebrow">CREW SCORE · UNPRICED</p><strong id="invoice-score">0</strong><span id="invoice-combo"></span><div id="invoice-badges" class="badge-list"></div>';
+  document.querySelector('.invoice-intro')!.append(invoiceAwards);
+
   for (const el of document.querySelectorAll<HTMLButtonElement>('[data-fixture]')) el.onclick = () => h.start(el.dataset.fixture as FixtureName);
   const actInWorld = (cmd: Command) => {
     h.send(cmd);
     $<HTMLCanvasElement>('scene').focus({preventScroll:true});
   };
   for (const el of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) el.onclick = () => actInWorld({ type: 'selectTool', tool: el.dataset.tool as Tool });
-  for (const el of document.querySelectorAll<HTMLButtonElement>('[data-command]:not([data-command="start"])')) el.onclick = () => actInWorld({ type: el.dataset.command } as Command);
+  for (const el of document.querySelectorAll<HTMLButtonElement>('[data-command]:not([data-command="start"]):not([data-command="setBoost"])')) el.onclick = () => actInWorld({ type: el.dataset.command } as Command);
   $('activate').onclick = () => actInWorld({type:'toggleActive'});
   $('interact').onclick = () => actInWorld({type:'interact'});
+  let displayedBoost = false;
+  $('boost').onclick = () => actInWorld({type:'setBoost',pressed:!displayedBoost});
+  $('next-spot').onclick = () => actInWorld({type:'aimNext'});
   $<HTMLSelectElement>('target').onchange = e => h.send({ type: 'selectTarget', target: (e.target as HTMLSelectElement).value as Target });
   $<HTMLInputElement>('throttle').oninput = e => h.send({ type:'setThrottle', value: Number((e.target as HTMLInputElement).value) / 100 });
   $<HTMLInputElement>('air-break').oninput = e => h.send({ type:'setAirBreak', value: Number((e.target as HTMLInputElement).value) / 100 });
@@ -135,6 +186,29 @@ export function createUI(h: Handlers) {
     $('briefing').hidden = s.started;
     $('job-banner').hidden = !s.started;
     $('playing-controls').hidden = !s.started || s.stage === 'INVOICE';
+    $('live-instruction').hidden = !s.started || s.stage === 'INVOICE';
+    $('live-metrics').hidden = !s.started || s.stage === 'INVOICE';
+    $('advanced-controls').hidden = !s.started || s.stage === 'INVOICE';
+    $('reward-echo').hidden = !s.started || s.stage === 'INVOICE';
+    displayedBoost = s.work.boost;
+    $('boost').setAttribute('aria-pressed', String(s.work.boost));
+    $<HTMLButtonElement>('boost').disabled = s.paused || s.tool !== 'vacuum' || ['SETUP','CLEANUP','INVOICE'].includes(s.stage);
+    $('score').textContent = s.work.score.toLocaleString();
+    const liveCombo = s.work.lastClearTick !== null && (s.tick - s.work.lastClearTick) * CONFIG.step <= ARCADE.comboSeconds ? s.work.combo : 0;
+    $('combo').textContent = liveCombo > 0 ? `${liveCombo}×` : '—';
+    $('combo').parentElement!.classList.toggle('combo-live', liveCombo > 1);
+    $('bolts').textContent = `${s.work.collectibles.filter(Boolean).length} / 3`;
+    const spot = workSpot(s);
+    const clearPercent = Math.max(0, Math.min(100, spot.initial > 0 ? 100 * (1 - spot.remaining / spot.initial) : 100));
+    const aimStage = !['SETUP','CLEANUP','INVOICE'].includes(s.stage);
+    $('spot-label').parentElement!.hidden = !aimStage;
+    $('next-spot').hidden = !aimStage;
+    $('spot-label').textContent = spot.label;
+    $<HTMLProgressElement>('spot-progress').value = clearPercent;
+    $('spot-percent').textContent = `${clearPercent.toFixed(0)}%`;
+    $<HTMLButtonElement>('next-spot').disabled = s.paused || hotspots(s).length <= 1 || ['SETUP','CLEANUP','INVOICE'].includes(s.stage);
+    const rewardText = s.work.lastReward && (s.tick - s.work.lastReward.tick) / 60 < 3 ? s.work.lastReward.text : 'Sweep between dirty spots to chain cleanups. Shift gives the pump a burst.';
+    if ($('reward-echo').textContent !== rewardText) $('reward-echo').textContent = rewardText;
     $('world-controls').hidden = !s.started || s.stage === 'INVOICE';
     const context = getContextAction(s);
     const interact = $<HTMLButtonElement>('interact');
@@ -173,7 +247,7 @@ export function createUI(h: Handlers) {
       button.disabled = !!reason;
       button.title = reason || t.subtitle;
       button.setAttribute('aria-pressed',String(s.tool === t.key));
-      $(`reason-${t.key}`).textContent = reason ? reason : s.tool === t.key ? 'Selected' : 'Ready';
+      $(`reason-${t.key}`).textContent = reason ? !s.started || s.stage === 'SETUP' ? 'Set up first' : ['CLEANUP','INVOICE'].includes(s.stage) ? 'Work complete' : t.key === 'wipes' ? s.wipes.status === 'disposed' ? 'Disposed' : 'Watch for wipes' : t.key === 'mixer' ? s.tutorial.mixed ? 'Mixed' : 'After drawdown' : t.key === 'inlet' ? s.inlet.cleared ? 'Inlet clear' : 'After skum' : t.key === 'hose' ? 'After inlet' : s.stage === 'MIX' ? 'Mix first' : 'Clear inlet' : s.tool === t.key ? 'Equipped' : 'Ready';
     }
     const select = $<HTMLSelectElement>('target');
     if (select.value !== s.target) select.value = s.target;
@@ -183,7 +257,7 @@ export function createUI(h: Handlers) {
     const verb = s.tool === 'vacuum' ? 'vacuum' : s.tool === 'wipes' ? s.wipes.status === 'in_hose' ? 'clearing hose' : 'removing wipes' : s.tool === 'inlet' ? 'clearing inlet' : s.tool === 'mixer' ? 'mixing' : s.target.startsWith('wall') ? 'rinsing wall' : 'adding water';
     active.textContent = s.active ? `■ Stop ${verb}` : s.tool === 'wipes' ? s.wipes.status === 'in_hose' ? 'Clear hose · 2.5s →' : 'Remove wipes · 2s →' : s.tool === 'inlet' ? 'Clear inlet →' : s.tool === 'mixer' ? 'Start crust buster ↗' : s.tool === 'hose' ? s.target.startsWith('wall') ? 'Start wall rinse ↗' : 'Add water ↗' : 'Start vacuum ↗';
     active.classList.toggle('running',s.active);
-    $('action-reason').textContent = reason || (s.tool === 'wipes' && s.active ? `${s.wipes.progress.toFixed(1)}s · Click once; the tool does the work.` : 'Space or click a tank target to use. Move to stop.');
+    $('action-reason').textContent = reason || (s.tool === 'wipes' && s.active ? `${s.wipes.progress.toFixed(1)}s · Click once; the tool does the work.` : 'Space starts/stops. Sweep the mouse while working.');
     const visible: Record<string,boolean> = {
       openLid:s.stage==='SETUP'&&!s.lidOpen,connect:s.stage==='SETUP'&&s.lidOpen&&!s.connected,
       inspect:s.stage==='INLET'&&!s.inlet.inspected,continueMix:s.stage==='DRAWDOWN',
@@ -235,9 +309,13 @@ export function createUI(h: Handlers) {
     $('field-note').textContent=s.stage==='MIX'?'Today’s special: one exceptionally unappetizing smoothie.':s.stage==='INVOICE'?'You can’t buy happiness. You can invoice for this, though.':'“Flushable” is doing a lot of heavy lifting on that label.';
     if(s.stage==='INVOICE') {
       $('invoice-lines').innerHTML=[...s.fees].sort((a,b)=>a.key==='base_service'?-1:b.key==='base_service'?1:0).map(f=>`<div class="invoice-line"><span>${f.label}</span><b>${f.amount}</b></div>`).join('');
+      $('invoice-score').textContent = s.work.score.toLocaleString();
+      $('invoice-combo').textContent = `BEST COMBO ${Math.max(1,s.work.bestCombo)}×`;
+      const badges = [s.work.clogs === 0 ? 'Wipe whisperer' : 'Clog comeback', s.work.bogs === 0 ? 'Smooth operator' : null, s.work.collectibles.every(Boolean) ? 'Bolt collector' : `${s.work.collectibles.filter(Boolean).length}/3 crew bolts`, s.work.waterRecovery ? 'Come-back kid' : null].filter(Boolean);
+      $('invoice-badges').innerHTML = badges.map(b => `<span>${b}</span>`).join('');
       $('invoice-total').textContent=String(invoiceTotal(s));$('invoice-time').textContent=timeLabel(s.elapsed);$('invoice-water').textContent=`${n(m.A)} units`;
     }
-    const sceneLabel = `Outside-only cutaway tank. ${s.started?stageTitles[s.stage]:'Ready to begin a septic pumping job.'} A/D or arrow keys walk, W or Up jumps, S or Down crouches. E interacts near a station. Mouse aims and uses tools; Space operates, Q cycles targets. Material quantities are in the mixing card.`;
+    const sceneLabel = `Outside-only cutaway tank. ${s.started?stageTitles[s.stage]:'Ready to begin a septic pumping job.'} A/D or arrow keys walk, W or Up jumps, S or Down crouches. E interacts near a station. Mouse sweeps the tool across dirty spots; Space starts/stops, Q finds the next dirty spot, Shift boosts suction. Flow, load and water minimum are in the live status dock; the material ledger is under Manual actions.`;
     if ($('scene').getAttribute('aria-label') !== sceneLabel) $('scene').setAttribute('aria-label', sceneLabel);
   }
   return { update, canvas:$<HTMLCanvasElement>('scene'), closeDialogs,

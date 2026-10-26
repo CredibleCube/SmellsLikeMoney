@@ -217,19 +217,19 @@ describe('direct side-view movement', () => {
 });
 
 describe('in-world work stations and context interaction', () => {
-  it('stops tools immediately when walking or jumping and requires a stationary outside work position', () => {
+  it('stops tools on movement and lets fire plant the worker’s feet immediately while still rejecting airborne work', () => {
     const state = beginPumping();
     const materials = structuredClone(state.materials);
     move(state, 'right');
     expect(state.active).toBe(false);
     expect(state.flow).toBe(0);
-    expect(actionReason(state)).toMatch(/movement|stand still/i);
-    expect(send(state, { type: 'toggleActive' })).toBe(false);
-    ticks(state, 30);
+    ticks(state, 4);
     expect(state.materials).toEqual(materials);
-    move(state, 'right', false);
-    ticks(state, 30);
+    expect(state.player.vx).toBeGreaterThan(0);
     expect(send(state, { type: 'toggleActive' })).toBe(true);
+    expect(state.player.vx).toBe(0);
+    expect(Object.values(state.player.input).every(value => !value)).toBe(true);
+    expect(state.active).toBe(true);
     move(state, 'up');
     expect(state.active).toBe(false);
     ticks(state, 1);

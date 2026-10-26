@@ -9,7 +9,9 @@ No installation, server, internet connection, account, or API key is needed.
 Choose Clock in to start. How to play reopens the instructions.
 A/D or Left/Right walk; W/Up jumps; S/Down crouches.
 Stand near the hatch, inlet, or truck and press E to interact.
-Mouse clicks aim/use tools; Space operates, 1-5 equip, Q cycles targets.
+Click or Space starts a tool. Sweep across dirt; Q aims at the next dirty spot.
+1-5 equip tools. Shift or the Boost button speeds pumping but raises heat.
+Chain cleanups for points; jump for three optional crew bolts.
 All tools are click-to-start/click-to-stop; sound is optional.
 No mid-job saves: reloading returns to the title screen.
 

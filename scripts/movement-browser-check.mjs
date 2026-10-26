@@ -40,6 +40,12 @@ try {
   const advance = seconds => page.evaluate(seconds => window.__game.advance(seconds), seconds);
   const focus = () => page.locator('#scene').focus();
   const shot = name => page.screenshot({ path: new URL(name, evidenceDir).pathname, fullPage: true, animations: 'disabled' });
+  const setAdvanced = async open => {
+    const details = page.locator('#advanced-controls');
+    if (!(await details.count()) || await details.evaluate(element => element.open) === open) return;
+    await details.locator('summary').first().click();
+    assert.equal(await details.evaluate(element => element.open), open);
+  };
   const inputsReleased = state => Object.values(state.player.input).every(value => value === false);
   const travel = async destination => {
     await focus();
@@ -112,6 +118,40 @@ try {
   assert((await snapshot()).player.grounded);
   log('W and Up jump with gravity, landing, and no automatic bunny hopping');
 
+
+  await page.keyboard.down('w');
+  await advance(0.05);
+  await page.keyboard.up('w');
+  let shortJumpTop = (await snapshot()).player.y;
+  for (let i = 0; i < 50; i++) {
+    const sample = await snapshot();
+    shortJumpTop = Math.min(shortJumpTop, sample.player.y);
+    if (sample.player.grounded) break;
+    await advance(1 / 60);
+  }
+  assert((await snapshot()).player.grounded);
+  await page.keyboard.down('w');
+  await advance(0.4);
+  state = await snapshot();
+  assert(state.player.y < shortJumpTop - 20, 'Holding jump must rise higher than an early key release');
+  await page.keyboard.up('w');
+  for (let i = 0; i < 60; i++) {
+    state = await snapshot();
+    if (!state.player.grounded && state.player.vy > 0 && state.player.y >= 246) break;
+    await advance(1 / 60);
+  }
+  assert(!state.player.grounded && state.player.vy > 0);
+  await page.keyboard.down('ArrowUp');
+  state = await snapshot();
+  assert(!state.player.grounded && state.player.jumpBuffer > 0, 'Jump pressed just before landing is buffered in the air');
+  await advance(0.12);
+  state = await snapshot();
+  assert(!state.player.grounded && state.player.vy < 0 && state.player.y < 270, 'Buffered jump must launch immediately after landing');
+  await page.keyboard.up('ArrowUp');
+  await advance(1);
+  assert((await snapshot()).player.grounded);
+  log('Tap/hold variable jump height and a native Up press buffered just before landing');
+
   await page.keyboard.down('s');
   await advance(0.1);
   assert((await snapshot()).player.crouching);
@@ -178,6 +218,7 @@ try {
   await page.keyboard.down('d');
   await advance(0.15);
   assert((await snapshot()).player.input.right);
+  await setAdvanced(true);
   await page.locator('#throttle').focus();
   assert(inputsReleased(await snapshot()), 'Native control focus releases held movement');
   await page.keyboard.up('d');
@@ -194,6 +235,7 @@ try {
   await advance(0.2);
   assert.equal((await snapshot()).player.x, nativeX);
   await page.locator('#target').selectOption('surface');
+  await setAdvanced(false);
   await focus();
   await page.keyboard.press('q');
   assert.equal((await snapshot()).target, 'surface');
@@ -208,15 +250,15 @@ try {
   assert(!(await snapshot()).active, 'Walking immediately stops the active tool');
   const beforeWalk = (await snapshot()).materials;
   await advance(0.2);
-  await page.keyboard.press('Space');
-  assert(!(await snapshot()).active, 'A moving worker cannot fire a stationary tool');
-  await page.keyboard.up('a');
-  await advance(0.3);
   assert.deepEqual((await snapshot()).materials, beforeWalk);
   await page.keyboard.press('Space');
-  assert((await snapshot()).active);
+  state = await snapshot();
+  assert(state.active && state.player.vx === 0 && inputsReleased(state), 'Space brakes the worker before firing without a dead press');
+  await page.keyboard.up('a');
+  await advance(0.3);
+  assert((await snapshot()).materials.S < beforeWalk.S);
   await page.keyboard.press('Space');
-  log('Space operates the selected tool; walking stops work and moving workers cannot bypass tool guards');
+  log('Walking stops work; Space brakes and fires immediately from a valid station');
 
   const canvasBounds = await page.locator('#scene').boundingBox();
   assert(canvasBounds);

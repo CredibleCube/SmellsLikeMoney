@@ -1,6 +1,6 @@
 {
   "name": "smells-like-money",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:browser": "node scripts/browser-check.mjs",
     "test:movement-browser": "node scripts/movement-browser-check.mjs",
+    "test:arcade-browser": "node scripts/arcade-browser-check.mjs",
     "test:standalone": "node scripts/standalone-check.mjs"
   },
   "devDependencies": {

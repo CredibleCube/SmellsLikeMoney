@@ -5,6 +5,7 @@ import { command, actionReason, commandReason, getContextAction } from '../src/c
 import { assertInvariants, finalChecks, mixingAllowed, recommendedWater, step, tankTotal, wallTotal } from '../src/simulation';
 import { invoiceTotal } from '../src/events';
 import { stationReason } from '../src/movement';
+import { createWork, workSpot, hotspots } from '../src/work';
 import type { Command, FixtureName, JobState, Materials, Target, Tool } from '../src/types';
 
 function send(s: JobState, c: Command): boolean {
@@ -22,6 +23,10 @@ function until(s: JobState, predicate: () => boolean, seconds = 900): void {
   const deadline = Math.ceil(seconds / CONFIG.step);
   for (let i = 0; i < deadline; i++) {
     if (predicate()) return;
+    if (s.active && ['scum', 'settled', 'suspended', 'wall'].includes(workSpot(s).kind) && workSpot(s).remaining <= CONFIG.epsilon && hotspots(s).some(spot => spot.remaining > CONFIG.epsilon)) {
+      expect(command(s, { type: 'aimNext' })).toBe(true);
+      assertInvariants(s);
+    }
     step(s);
     assertInvariants(s);
   }
@@ -131,6 +136,7 @@ function accounts(s: JobState, edits: Partial<Materials>): void {
   const m = s.materials;
   m.CW = 550 + m.A - m.W - m.PW;
   m.CS = 290 - m.S - m.U - m.M - wallTotal(s) - m.PS;
+  s.work = createWork(m);
   assertInvariants(s);
 }
 
@@ -139,6 +145,8 @@ describe('complete playable jobs', () => {
   it('finishes normal seed 101 from setup to the 575-credit invoice with real completion remainders', () => {
     const s = complete('normal');
     expect(invoiceTotal(s)).toBe(575);
+    expect(s.elapsed).toBeGreaterThan(60);
+    expect(s.elapsed).toBeLessThan(300);
     expect(s.fees.map(f => f.key).sort()).toEqual(['base_service', 'excess_wipes', 'inlet_clear']);
     expect(s.wipes.disposed).toBe(5);
     expect(s.materials.S + s.materials.U).toBeGreaterThan(0);
@@ -151,6 +159,7 @@ describe('complete playable jobs', () => {
   it('finishes challenge seed 202 after a real clog and deliberate drain to 40, with hose-water recovery', () => {
     const s = complete('challenge', true);
     expect(invoiceTotal(s)).toBe(575);
+    expect(s.elapsed).toBeLessThan(420);
     expect(s.wipes.disposed).toBe(8);
     expect(s.materials.A).toBeGreaterThan(200);
     expect(s.fees.filter(f => f.key === 'excess_wipes')).toHaveLength(1);
@@ -249,7 +258,9 @@ describe('material accounting and tool guards', () => {
     activate(s, 'hose', 'liquid');
     ticks(s, 60);
     expect(s.materials.W).toBeGreaterThan(1.5);
-    expect(s.materials.A).toBeCloseTo(4, 8);
+    expect(s.materials.A).toBeCloseTo(CONFIG.hoseRate, 8);
+    expect(s.materials.M).toBe(before.M);
+    expect(s.materials.walls).toEqual(before.walls);
     activate(s, 'vacuum', 'liquid');
     ticks(s, 1);
     expect(s.materials.M).toBeLessThan(1);
@@ -303,11 +314,11 @@ describe('material accounting and tool guards', () => {
     accounts(s, { W: 100, S: 0.9, U: 0.4, M: 20 });
     const before = structuredClone(s.materials);
     activate(s, 'hose', 'wall0');
-    ticks(s, 60);
-    expect(s.materials.walls[0]).toBeCloseTo(before.walls[0] - 2, 8);
-    expect(s.materials.M).toBeCloseTo(before.M + 2, 8);
-    expect(s.materials.W).toBeCloseTo(before.W + 4, 8);
-    expect(s.materials.A).toBeCloseTo(before.A + 4, 8);
+    ticks(s, 30);
+    expect(s.materials.walls[0]).toBeCloseTo(before.walls[0] - CONFIG.washRate * 0.5, 8);
+    expect(s.materials.M).toBeCloseTo(before.M + CONFIG.washRate * 0.5, 8);
+    expect(s.materials.W).toBeCloseTo(before.W + CONFIG.hoseRate * 0.5, 8);
+    expect(s.materials.A).toBeCloseTo(before.A + CONFIG.hoseRate * 0.5, 8);
     send(s, { type: 'stop' });
     accounts(s, { W: 1000 - s.materials.S - s.materials.U - s.materials.M - wallTotal(s), A: 1000 });
     const full = structuredClone(s.materials);
@@ -332,6 +343,8 @@ describe('material accounting and tool guards', () => {
     until(s, () => s.stage === 'DRAWDOWN', 30);
     expect(s.materials.PW + s.materials.PS).toBeLessThanOrEqual(CONFIG.epsilon);
     expect(s.materials.U).toBeCloseTo(170, 8);
+    expect(s.work.settled.slice(0, 3)).toEqual([40, 40, 40]);
+    expect(s.work.settled[3]).toBeCloseTo(50, 8);
     expect(s.fees.filter(f => f.key === 'inlet_clear')).toHaveLength(1);
     ticks(s, 120);
     expect(s.materials.U).toBeCloseTo(170, 8);
@@ -416,7 +429,7 @@ describe('wipes, heat, pause, and command safety', () => {
     until(s, () => s.bogged, 3);
     expect(s.heat).toBeGreaterThanOrEqual(80);
     ticks(s, 1);
-    expect(s.flow).toBeCloseTo(2.8 * 0.35, 6);
+    expect(s.flow).toBeCloseTo(CONFIG.baseFlow * 0.35, 6);
     send(s, { type: 'stop' });
     const before = structuredClone(s.materials);
     until(s, () => !s.bogged, 5);
@@ -430,7 +443,7 @@ describe('wipes, heat, pause, and command safety', () => {
     send(s, { type: 'setAirBreak', value: 0.5 });
     activate(s, 'vacuum');
     ticks(s, 1);
-    expect(s.flow).toBeCloseTo(1.4, 6);
+    expect(s.flow).toBeCloseTo(CONFIG.baseFlow * 0.5, 6);
     expect(s.load).toBeCloseTo(0.63125, 6);
     expect(s.heat).toBe(0);
   });

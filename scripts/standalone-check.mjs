@@ -31,8 +31,8 @@ try {
   await page.waitForSelector('[data-fixture="normal"]');
   assert.equal(await page.evaluate(() => typeof window.__game), 'undefined');
   await page.locator('[data-fixture="normal"]').click();
-  await page.locator('[data-command="openLid"]').click();
-  await page.locator('[data-command="connect"]').click();
+  await page.keyboard.press('e');
+  await page.keyboard.press('e');
   await page.clock.runFor(150);
   assert.equal(await page.locator('#stage-title').textContent(), 'Skim a little off the top.');
   await page.locator('#activate').click();
@@ -66,6 +66,14 @@ try {
   await page.keyboard.press('Space');
   await page.clock.runFor(500);
   assert.match(await page.locator('#activate').textContent(), /Stop vacuum/);
+  const firstSpot=await page.locator('#spot-label').textContent();
+  await page.keyboard.press('q');
+  assert.notEqual(await page.locator('#spot-label').textContent(),firstSpot);
+  assert.match(await page.locator('#activate').textContent(), /Stop vacuum/);
+  await page.locator('#boost').click();
+  assert.equal(await page.locator('#boost').getAttribute('aria-pressed'),'true');
+  await page.locator('#boost').click();
+  assert.equal(await page.locator('#boost').getAttribute('aria-pressed'),'false');
   await page.keyboard.press('Space');
   const external = requests.filter(url => !url.startsWith('file:') && !url.startsWith('data:'));
   assert.deepEqual(external, []);
@@ -75,7 +83,7 @@ try {
     documentTransport: fileNavigation ? 'file://' : 'about:blank setContent (exact HTML bytes)',
     limitation: fileNavigation ? null : 'Cloud Chromium blocks file:// by administrator policy; direct local-file navigation remains a user-browser check.',
     titleAndSetup: true, suctionTransfersMaterial: true, pauseAndResume: true,
-    keyboard: true, directMovement: true, settingsWithUnavailableStorage: true, productionBridgeAbsent: true,
+    keyboard: true, directMovement: true, spatialAim: true, boostToggle: true, settingsWithUnavailableStorage: true, productionBridgeAbsent: true,
     externalRequests: external, browserErrors: errors,
   };
   await writeFile('evidence/standalone-report.json', JSON.stringify(report, null, 2));

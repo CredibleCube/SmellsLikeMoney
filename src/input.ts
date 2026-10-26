@@ -1,4 +1,4 @@
-import type { Command, JobState, MoveDirection, Target, Tool } from './types';
+import type { Command, JobState, MoveDirection, Tool } from './types';
 
 const TOOLS: Tool[] = ['vacuum', 'wipes', 'inlet', 'mixer', 'hose'];
 const MOVEMENT_KEYS: Record<string, MoveDirection> = {
@@ -11,6 +11,7 @@ const NATIVE_CONTROLS = 'input, select, textarea, button, a, summary, dialog, [c
 export interface KeyboardBinding {
   /** Release movement without waiting for keyup, including an input-focus change. */
   clear(): void;
+  releaseMovement(): void;
   dispose(): void;
 }
 
@@ -18,17 +19,6 @@ function codeFor(event: KeyboardEvent): string {
   if (event.code) return event.code;
   if (/^[a-z]$/i.test(event.key)) return `Key${event.key.toUpperCase()}`;
   return event.key === ' ' ? 'Space' : event.key;
-}
-
-function targetsFor(state: JobState): Target[] {
-  switch (state.tool) {
-    case 'wipes': return ['surface'];
-    case 'inlet': return ['inlet'];
-    case 'mixer': return ['bottom'];
-    case 'hose': return state.stage === 'WASH' || state.stage === 'FINAL_PUMP'
-      ? ['liquid', 'wall0', 'wall1', 'wall2', 'wall3'] : ['liquid'];
-    case 'vacuum': return state.stage === 'SCUM' ? ['surface'] : ['liquid', 'bottom'];
-  }
 }
 
 /** Held movement belongs to gameplay; native controls retain their own keys. */
@@ -39,6 +29,8 @@ export function bindKeyboard(
   getState: () => JobState,
 ): KeyboardBinding {
   const held = new Set<string>();
+  const boostHeld = new Set<string>();
+  let boostPublished = false;
   const published: Record<MoveDirection, boolean> = { left: false, right: false, up: false, down: false };
 
   const publishDirection = (direction: MoveDirection): void => {
@@ -47,7 +39,7 @@ export function bindKeyboard(
     published[direction] = pressed;
     send({ type: 'move', direction, pressed });
   };
-  const clear = (): void => {
+  const releaseMovement = (): void => {
     held.clear();
     for (const direction of DIRECTIONS) {
       const wasPressed = published[direction] || getState().player.input[direction];
@@ -55,6 +47,13 @@ export function bindKeyboard(
       if (wasPressed) send({ type: 'move', direction, pressed: false });
     }
   };
+  const releaseBoost = (): void => {
+    boostHeld.clear();
+    const wasBoosting = boostPublished || getState().work.boost;
+    boostPublished = false;
+    if (wasBoosting) send({ type: 'setBoost', pressed: false });
+  };
+  const clear = (): void => { releaseMovement(); releaseBoost(); };
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -75,18 +74,26 @@ export function bindKeyboard(
       event.preventDefault();
       // Ignore repeats after a pause/reset until the physical key is released.
       if (event.repeat) return;
+      releaseBoost();
       held.add(code);
       publishDirection(direction);
       return;
     }
+    if (code === 'ShiftLeft' || code === 'ShiftRight') {
+      event.preventDefault();
+      if (event.repeat) return;
+      boostHeld.add(code);
+      if (!boostPublished) { boostPublished = true; send({ type: 'setBoost', pressed: true }); }
+      return;
+    }
     if (code === 'Space') {
       event.preventDefault();
-      if (!event.repeat) { clear(); send({ type: 'toggleActive' }); }
+      if (!event.repeat) { releaseMovement(); send({ type: 'toggleActive' }); }
       return;
     }
     if (code === 'KeyE') {
       event.preventDefault();
-      if (!event.repeat) { clear(); send({ type: 'interact' }); }
+      if (!event.repeat) { releaseMovement(); send({ type: 'interact' }); }
       return;
     }
     const number = Number(event.key);
@@ -98,15 +105,17 @@ export function bindKeyboard(
     if (code === 'KeyQ') {
       event.preventDefault();
       if (event.repeat) return;
-      clear();
-      const targets = targetsFor(state);
-      const index = Math.max(0, targets.indexOf(state.target));
-      const step = event.shiftKey ? -1 : 1;
-      send({ type: 'selectTarget', target: targets[(index + step + targets.length) % targets.length] });
+      releaseMovement();
+      send({ type: 'aimNext', reverse: event.shiftKey });
     }
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     const code = codeFor(event);
+    if (code === 'ShiftLeft' || code === 'ShiftRight') {
+      boostHeld.delete(code);
+      if (!boostHeld.size && boostPublished) { boostPublished = false; send({ type: 'setBoost', pressed: false }); }
+      return;
+    }
     const direction = MOVEMENT_KEYS[code];
     if (!direction || !held.delete(code)) return;
     // Keyup must release a held direction even after focus moved to a button.
@@ -114,7 +123,12 @@ export function bindKeyboard(
   };
   const onFocusIn = (event: FocusEvent): void => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest(NATIVE_CONTROLS)) clear();
+    if (target?.closest(NATIVE_CONTROLS)) {
+      // These gameplay buttons deliberately manage boost/aim themselves. A
+      // mouse focus event must not flip boost before its toggle reads state.
+      if (target.closest('#boost, #next-spot, #interact, #activate')) releaseMovement();
+      else clear();
+    }
   };
   const onVisibilityChange = (): void => { if (document.hidden) clear(); };
   document.addEventListener('keydown', onKeyDown);
@@ -124,6 +138,7 @@ export function bindKeyboard(
   document.addEventListener('visibilitychange', onVisibilityChange);
   return {
     clear,
+    releaseMovement,
     dispose: () => {
       clear();
       document.removeEventListener('keydown', onKeyDown);

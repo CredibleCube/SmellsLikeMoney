@@ -1,10 +1,13 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "productionHTTP": 200,
   "devBridgeAbsent": true,
   "contextualSetup": true,
-  "startedAndStoppedVacuum": true,
   "materialDisplayResponded": true,
-  "walkingJumpingCrouching": true,
+  "continuousPointerAim": true,
+  "keyboardDirtySpotAim": true,
+  "boostToggle": true,
+  "pause": true,
+  "directMovement": true,
   "errors": []
 }

@@ -7,6 +7,8 @@
   "pauseAndResume": true,
   "keyboard": true,
   "directMovement": true,
+  "spatialAim": true,
+  "boostToggle": true,
   "settingsWithUnavailableStorage": true,
   "productionBridgeAbsent": true,
   "externalRequests": [],

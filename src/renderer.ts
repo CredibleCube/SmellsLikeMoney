@@ -1,5 +1,6 @@
 import type { JobState, Target } from './types';
-import { CONFIG, WORLD } from './config';
+import { ARCADE, CONFIG, WORLD } from './config';
+import { hotspots, materialSpots, wallSpots, workSpot } from './work';
 import { getContextAction } from './commands';
 
 // All scene art is original Canvas drawing. Physics and quantities live elsewhere.
@@ -73,29 +74,70 @@ function truck(c:C,state:JobState){
   dot(c,153,195,15,'#dbc376',ink,3);dot(c,153,195,7,'#718653',ink,2);
   round(c,438,217,19,26,3,'#4b6662',ink,3);line(c,[439,228,455,228],gold,3);
   if(state.bogged){panel(c,281,82,112,27,'#ffc16e');text(c,'BRR… BOGGED!',337,101,11,ink,900,'center');}
+  else if(state.work.boost&&state.active&&state.tool==='vacuum'){panel(c,281,82,134,27,'#ffb34f');text(c,`BOOST!  ${Math.round(state.heat)}%`,348,101,11,ink,950,'center');}
 }
 function levels(state:JobState){const m=state.materials;const scale=interior.h/1000;const solidsTop=interior.bottom-m.U*scale;const waterTop=solidsTop-(m.W+m.M)*scale;return{solidsTop,waterTop,scumTop:waterTop-m.S*scale,scale};}
-function targetPosition(state:JobState):[number,number]{const l=levels(state);switch(state.target){case'surface':return[510,Math.max(l.scumTop+5,351)];case'liquid':return[540,Math.max(l.waterTop+22,Math.min(535,l.solidsTop-14))];case'inlet':return[906,383];case'bottom':return[550,550];case'wall0':return[209,452];case'wall1':return[922,452];case'wall2':return[389,556];case'wall3':return[755,556];}}
+function targetPosition(state:JobState):[number,number]{
+  const spot=workSpot(state), aim=state.work.aim;
+  if(spot.kind==='wall')return[aim.x,aim.y];
+  if(['scum','settled','suspended','water'].includes(spot.kind))return[aim.x,spot.y];
+  return[spot.x,spot.y];
+}
 function layerTag(c:C,name:string,y:number,color:string){panel(c,24,y-16,127,27,'#e6e3b7',5);dot(c,38,y-2,4,color,ink,1);text(c,name,49,y+2,10,ink,900);line(c,[151,y-2,172,y-2,193,y],color,2);}
 function tank(c:C,state:JobState,time:number,reduced:boolean){
   const l=levels(state),m=state.materials,clean=['CLEANUP','INVOICE'].includes(state.stage);
   round(c,172,322,796,279,28,'#16373b88');round(c,170,315,790,275,26,'#638474',ink,5);round(c,180,324,770,257,20,'#b1b99a',ink,3);round(c,192,333,746,236,14,'#335b55',ink,3);round(c,196,337,738,228,12,clean?'#d8e8ba':'#c0d1ab',ink,2);
-  // Steel reinforcement and bolt heads make the cutaway look like a game prop.
   for(const x of [181,948])for(const y of [341,452,568]){dot(c,x,y,4,'#d4d6ac',ink,2);line(c,[x-1,y-1,x+2,y+2],ink,1);}
   round(c,704,270,83,65,5,'#84997c',ink,4);round(c,717,278,57,55,2,'#244a43',ink,3);
   if(!state.lidOpen||state.lidClosed){round(c,692,261,107,17,5,'#78966e',ink,4);line(c,[712,265,779,265],'#d0d9a1',3);}
   else{c.save();c.translate(819,261);c.rotate(-.33);round(c,-35,-5,83,16,5,'#78966e',ink,4);line(c,[-17,-1,26,-1],'#d0d9a1',3);c.restore();}
   c.save();c.beginPath();c.roundRect(197,338,736,226,11);c.clip();
-  // Water, solids, and skum geometry is derived only from conserved accounts.
-  if(m.U>.05){c.fillStyle='#8b613e';c.fillRect(197,l.solidsTop,736,interior.bottom-l.solidsTop+1);for(let i=0;i<69;i++){const x=206+(i*89)%717,y=l.solidsTop+3+(i*19)%Math.max(2,interior.bottom-l.solidsTop-5);oval(c,x,y,3+i%4,2,'#d29b54');}line(c,[197,l.solidsTop,933,l.solidsTop],'#5d5538',2);}
-  if(m.W+m.M>.05){const slurry=m.M/Math.max(.001,m.W+m.M)>.06;const g=c.createLinearGradient(0,l.waterTop,0,l.solidsTop);g.addColorStop(0,slurry?'#8cba6f':'#63c6bd');g.addColorStop(1,slurry?'#477d60':'#267d82');c.fillStyle=g;c.fillRect(197,l.waterTop,736,l.solidsTop-l.waterTop);line(c,[197,l.waterTop,933,l.waterTop],slurry?'#c5dc86':'#b6f4d3',3);
-    for(let i=0;i<27;i++){const x=207+(i*97)%716,y=l.waterTop+8+(i*41)%Math.max(2,l.solidsTop-l.waterTop-12);line(c,[x,y,x+9+(i%3)*4,y],slurry?'#c7db8366':'#b6f3d166',2);}
-    if(slurry)for(let i=0;i<43;i++){const x=209+(i*79)%713,y=l.waterTop+5+(i*37+time*(state.active&&!reduced?11:0))%Math.max(2,l.solidsTop-l.waterTop-9);dot(c,x,y,1.5+i%2,'#365d4b99');}
+  // Flat water is shared; all dirt shapes below are the actual finite local accounts.
+  if(m.W+m.M>.05){
+    const g=c.createLinearGradient(0,l.waterTop,0,565);g.addColorStop(0,'#63c6bd');g.addColorStop(1,'#267d82');c.fillStyle=g;c.fillRect(197,l.waterTop,736,565-l.waterTop);line(c,[197,l.waterTop,933,l.waterTop],'#b6f4d3',3);
+    for(let i=0;i<27;i++){const x=207+(i*97)%716,y=l.waterTop+8+(i*41)%Math.max(2,565-l.waterTop-12);line(c,[x,y,x+9+(i%3)*4,y],'#b6f3d144',2);}
   }
-  if(m.S>.05){c.fillStyle='#b6c65f';c.fillRect(197,l.scumTop,736,Math.max(3,l.waterTop-l.scumTop));for(let i=0;i<39;i++){const x=205+(i*83)%721,y=l.scumTop+2+(i*13)%Math.max(1,l.waterTop-l.scumTop-3);oval(c,x,y,4+i%5,1.8,'#667d3d');}line(c,[197,l.scumTop,933,l.scumTop],'#e1ec8a',3);}
-  for(let i=0;i<4;i++){const ratio=m.walls[i]/CONFIG.initialWalls[i];if(ratio<.001)continue;c.globalAlpha=.2+.7*ratio;if(i<2){const x=i===0?198:919;for(let k=0;k<13;k++)oval(c,x+(i===0?3:-3),354+k*16,5+ratio*10,6+(k%3)*4,'#8c8543');}else for(let k=0;k<18;k++)oval(c,226+(i-2)*355+k*19,562,8+(k%3)*3,2+ratio*7,'#8c8543');c.globalAlpha=1;}
+  // Four settled clumps expose clean floor independently as the mixer sweeps.
+  for(const spot of materialSpots(state,'settled')){
+    if(spot.remaining<=.001)continue;
+    const x=197+spot.column*184.5,h=Math.max(3,spot.remaining*.88),top=565-h;
+    poly(c,[x,565,x,top+8,x+17,top+2,x+45,top+5,x+72,top,x+109,top+5,x+139,top+2,x+182,top+8,x+182,565],'#8b613e',ink,1.8);
+    for(let i=0;i<15;i++){const xx=x+10+(i*31)%163,yy=top+5+(i*11)%Math.max(2,h-6);oval(c,xx,yy,3+i%4,2,'#d29b54');}
+  }
+  // Visible suspended clouds give proportional suction a local place to aim.
+  for(const spot of materialSpots(state,'suspended')){
+    if(spot.remaining<=.002)continue;
+    const amount=Math.min(1,spot.remaining/50),low=565-state.work.settled[spot.column]*.88;
+    const mid=Math.max(l.waterTop+12,(l.waterTop+low)/2),hh=Math.max(10,Math.min(76,(low-l.waterTop)*.43));
+    c.save();c.globalAlpha=.28+.57*amount;
+    oval(c,spot.x,mid,65+amount*20,hh,'#8fae60','#44694a',2);
+    for(let i=0;i<15;i++){const a=i*2.41,rr=13+(i%6)*9,dy=(reduced?0:Math.sin(time*.6+i)*2);oval(c,spot.x+Math.cos(a)*rr,mid+Math.sin(a)*Math.min(hh-3,rr*.55)+dy,3+i%4,2.2,'#405b3b');}
+    c.restore();
+  }
+  // Floating pockets retain their own height; clearing one leaves a visible gap.
+  for(const spot of materialSpots(state,'scum')){
+    if(spot.remaining<=.001)continue;
+    const x=199+spot.column*184.5,h=Math.max(3,spot.remaining*.88),top=l.waterTop-h;
+    poly(c,[x,l.waterTop,x,top+6,x+16,top+1,x+39,top+4,x+64,top,x+88,top+3,x+117,top,x+143,top+4,x+165,top+1,x+180,top+6,x+180,l.waterTop],'#b6c65f','#6a823c',1.8);
+    for(let i=0;i<11;i++){const xx=x+10+(i*43)%161,yy=top+3+(i*7)%Math.max(1,h-4);oval(c,xx,yy,4+i%4,1.8,'#667d3d');}
+    line(c,[x+7,top+2,x+44,top+3,x+63,top+1],'#e1ec8a',2);
+  }
+  // Twelve generous residue patches fade independently instead of globally.
+  for(const spot of wallSpots(state)){
+    const ratio=Math.max(0,Math.min(1,spot.remaining/spot.initial));if(ratio<.001)continue;
+    c.save();c.globalAlpha=.2+.7*ratio;
+    if(spot.target==='wall0'||spot.target==='wall1'){
+      const xx=spot.target==='wall0'?204:923;
+      for(let i=0;i<5;i++)oval(c,xx+(i%2?3:-2),spot.y-23+i*11,5+ratio*9,6+(i%3)*2,'#8c8543');
+      for(let i=0;i<4;i++)dot(c,xx+(spot.target==='wall0'?7:-7),spot.y-15+i*12,1.8,'#c9b865');
+    }else{
+      for(let i=0;i<7;i++)oval(c,spot.x-43+i*14,560,7+(i%3)*3,2+ratio*7,'#8c8543');
+      for(let i=0;i<4;i++)oval(c,spot.x-32+i*21,556,3,1.5,'#c9b865');
+    }
+    c.restore();
+  }
   if(['DRAWDOWN','MIX'].includes(state.stage)&&m.U+m.M>0){const low=565-(m.U+1.8*(m.U+m.M))*l.scale,high=565-(m.U+2.2*(m.U+m.M))*l.scale;c.fillStyle='#ffe89933';c.fillRect(198,high,735,low-high);c.setLineDash([8,6]);line(c,[199,high,930,high],gold,2);line(c,[199,low,930,low],gold,2);c.setLineDash([]);text(c,'MIXING ZONE',752,(high+low)/2+4,12,'#fff3b0',900);}
-  if(state.active&&!reduced&&m.W+m.M>0){for(let i=0;i<4;i++){const x=365+i*127+Math.sin(time+i)*9,y=Math.max(l.waterTop+2,l.scumTop+1);c.beginPath();c.ellipse(x,y,18+Math.sin(time*2+i)*5,2,0,0,Math.PI);c.strokeStyle='#e9f5c999';c.lineWidth=2;c.stroke();}}
+  if(state.active&&state.flow>0&&!reduced&&m.W+m.M>0){for(let i=0;i<4;i++){const x=365+i*127+Math.sin(time+i)*9,y=Math.max(l.waterTop+2,l.scumTop+1);c.beginPath();c.ellipse(x,y,18+Math.sin(time*2+i)*5,2,0,0,Math.PI);c.strokeStyle='#e9f5c999';c.lineWidth=2;c.stroke();}}
   c.restore();
   const zones:[[number,number],[number,number],[number,number],[number,number]]=[[182,436],[948,436],[382,578],[752,578]];
   zones.forEach(([x,y],i)=>{const selected=state.target===`wall${i}`;dot(c,x+1,y+2,12,ink);dot(c,x,y,12,selected?gold:cream,ink,2);text(c,String(i+1).padStart(2,'0'),x,y+4,10,ink,900,'center');});
@@ -113,35 +155,52 @@ function pipe(c:C,state:JobState){
 }
 function targetZone(c:C,state:JobState,time:number,reduced:boolean){
   if(!state.started||state.stage==='INVOICE'||state.stowed)return;
-  const [x,y]=targetPosition(state);const active=state.active&&!state.paused;
-  c.save();c.strokeStyle=active?'#fff5ba':gold;c.lineWidth=2;c.setLineDash([7,5]);
-  if(state.target==='wall0'||state.target==='wall1')round(c,state.target==='wall0'?198:906,350,27,190,8,undefined,gold,2);
-  else if(state.target==='wall2'||state.target==='wall3')round(c,state.target==='wall2'?219:572,542,339,24,7,undefined,gold,2);
-  c.setLineDash([]);const radius=17+(active&&!reduced?Math.sin(time*7)*2:0);c.beginPath();c.arc(x,y,radius,0,Math.PI*2);c.stroke();
-  for(const [dx,dy]of [[-1,0],[1,0],[0,-1],[0,1]])line(c,[x+dx*(radius+3),y+dy*(radius+3),x+dx*(radius+10),y+dy*(radius+10)],active?cream:gold,2);
-  dot(c,x,y,2.5,active?cream:gold);c.restore();
+  const spot=workSpot(state),[x,y]=targetPosition(state),working=state.active&&!state.paused&&state.flow>0;
+  const relevant=hotspots(state);
+  // Small numbered rings make each finite cleanup opportunity discoverable.
+  if(relevant.length>1)relevant.forEach((other,i)=>{
+    if(other.key===spot.key)return;
+    c.save();c.globalAlpha=other.remaining>.001?.58:.32;
+    dot(c,other.x,other.y,8,other.remaining>.001?'#c7d975':'#dceec8',ink,1.5);
+    text(c,other.remaining>.001?String(i+1):'✓',other.x,other.y+3,8,ink,900,'center');c.restore();
+  });
+  c.save();c.strokeStyle=working?'#fff5ba':gold;c.lineWidth=2;
+  const radius=17+(working&&!reduced?Math.sin(time*7)*2:0);
+  c.beginPath();c.arc(x,y,radius,0,Math.PI*2);c.stroke();
+  for(const [dx,dy]of [[-1,0],[1,0],[0,-1],[0,1]])line(c,[x+dx*(radius+3),y+dy*(radius+3),x+dx*(radius+10),y+dy*(radius+10)],working?cream:gold,2);
+  dot(c,x,y,2.5,working?cream:gold);
+  const progress=1-Math.min(1,spot.remaining/Math.max(.001,spot.initial));
+  c.beginPath();c.arc(x,y,radius+5,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);c.strokeStyle=lime;c.lineWidth=4;c.stroke();
+  // This progress is local material removed, not elapsed time or a particle count.
+  if(['scum','settled','suspended','wall'].includes(spot.kind)){
+    const empty=spot.remaining<=.001;
+    const caption=empty?'CLEAR · Q NEXT':`${spot.kind==='wall'?'PATCH':spot.kind==='scum'?'POCKET':spot.kind==='settled'?'CLUMP':'CLOUD'} ${spot.kind==='wall'?spot.patch+1:spot.column+1} · ${Math.round(progress*100)}%`;
+    const bx=Math.max(221,Math.min(795,x-65)),by=Math.max(347,Math.min(530,y+32));
+    panel(c,bx,by,130,23,empty?'#d4e79b':'#fbefc4',4);text(c,caption,bx+65,by+16,9.5,ink,900,'center');
+  }
+  c.restore();
 }
 function aimFacing(state:JobState): -1|1 {return state.active&&!state.paused?(targetPosition(state)[0]<state.player.x?-1:1):state.player.facing;}
 function hand(state:JobState):[number,number]{const p=state.player;return[p.x+aimFacing(state)*20,p.y-(p.crouching?28:45)];}
 function quad(a:number,b:number,c:number,t:number){return(1-t)*(1-t)*a+2*(1-t)*t*b+t*t*c;}
 function tools(c:C,state:JobState,time:number,reduced:boolean){
   if(!state.connected||state.stowed)return;
-  const [x,y]=targetPosition(state),[sx,sy]=hand(state);const active=state.active&&!state.paused;
+  const [x,y]=targetPosition(state),[sx,sy]=hand(state);const active=state.active&&!state.paused;const contact=active&&(state.flow>0||state.tool==='inlet'||state.tool==='wipes');
   const vac=state.tool==='vacuum';const hx=vac?x:608,hy=vac?y:486;
   const hose=()=>{c.beginPath();c.moveTo(448,229);c.bezierCurveTo(476,236,495,292,sx,sy);c.bezierCurveTo(sx+40,sy-12,747,249,746,303);c.bezierCurveTo(745,363,hx-22,hy-76,hx,hy);};
   hose();c.strokeStyle=ink;c.lineWidth=17;c.stroke();hose();c.strokeStyle=vac?'#81965f':'#667e67';c.lineWidth=11;c.stroke();hose();c.strokeStyle='#b4c17b';c.lineWidth=2;c.setLineDash([3,8]);c.stroke();c.setLineDash([]);
   c.save();c.translate(hx,hy);c.rotate(-.16);round(c,-12,-4,24,24,4,'#395550',ink,3);line(c,[-8,13,8,13],gold,3);c.restore();
   // A target guide is only an aiming aid. It never creates material or momentum.
   if(!vac){const cx=(sx+x)/2,cy=Math.min(sy,y)-45;c.save();c.setLineDash([2,8]);c.beginPath();c.moveTo(sx,sy);c.quadraticCurveTo(cx,cy,x,y);c.strokeStyle='#fff3b477';c.lineWidth=2;c.stroke();c.restore();}
-  if(vac&&active&&state.flow>0&&!reduced){for(let i=0;i<10;i++){const t=(time*1.35+i/10)%1;oval(c,hx+(746-hx)*t,hy+(307-hy)*t,2.5,4,'#f0dc8b');}for(let i=0;i<6;i++){const a=time*3+i*1.04;line(c,[hx+Math.cos(a)*35,hy+Math.sin(a)*12,hx+Math.cos(a)*16,hy+Math.sin(a)*5],'#d2f2b9',2);}}
+  if(vac&&active&&state.flow>0&&!reduced){for(let i=0;i<10;i++){const t=(time*1.35+i/10)%1;oval(c,hx+(746-hx)*t,hy+(307-hy)*t,state.work.boost?3.5:2.5,state.work.boost?5:4,state.work.boost?'#ffd173':'#f0dc8b');}for(let i=0;i<6;i++){const a=time*3+i*1.04;line(c,[hx+Math.cos(a)*35,hy+Math.sin(a)*12,hx+Math.cos(a)*16,hy+Math.sin(a)*5],'#d2f2b9',2);}}
   if(state.tool==='hose'){
     c.beginPath();c.moveTo(484,269);c.bezierCurveTo(543,292,sx-50,sy+35,sx,sy);c.strokeStyle=ink;c.lineWidth=8;c.stroke();c.strokeStyle='#759851';c.lineWidth=4;c.stroke();
     const cx=(sx+x)/2,cy=Math.min(sy,y)-45;line(c,[sx-6,sy+3,sx+13,sy-6],'#d6af5e',10);line(c,[sx-6,sy+3,sx+13,sy-6],ink,2);
-    if(active){c.beginPath();c.moveTo(sx+10,sy-5);c.quadraticCurveTo(cx,cy,x,y);c.strokeStyle='#c4f1db88';c.lineWidth=5;c.stroke();if(!reduced)for(let i=0;i<18;i++){const t=(time*1.3+i/18)%1;dot(c,quad(sx,cx,x,t),quad(sy,cy,y,t),1.6+(i%3)*.5,'#efffc9');}for(let i=0;i<6;i++){const a=(i-3)*.5;line(c,[x,y,x+Math.cos(a)*17,y+Math.sin(a)*20],'#dff8c4',2);}}
+    if(contact){c.beginPath();c.moveTo(sx+10,sy-5);c.quadraticCurveTo(cx,cy,x,y);c.strokeStyle='#c4f1db88';c.lineWidth=5;c.stroke();if(!reduced)for(let i=0;i<18;i++){const t=(time*1.3+i/18)%1;dot(c,quad(sx,cx,x,t),quad(sy,cy,y,t),1.6+(i%3)*.5,'#efffc9');}for(let i=0;i<6;i++){const a=(i-3)*.5;line(c,[x,y,x+Math.cos(a)*17,y+Math.sin(a)*20],'#dff8c4',2);}}
   }
   if(state.tool==='mixer'){
     line(c,[sx,sy,x,y],ink,9);line(c,[sx-1,sy,x-2,y],'#aebc8e',3);round(c,sx-15,sy-11,30,18,4,'#d9a84d',ink,3);round(c,x-30,y-7,60,12,5,'#6c855e',ink,3);
-    if(active)for(let i=0;i<3;i++){c.beginPath();c.ellipse(x,y-5,28+i*17,8+i*3,0,reduced?0:time*2+i,(reduced?0:time*2+i)+4.4);c.strokeStyle='#e2e8a3';c.lineWidth=2.5;c.stroke();}
+    if(contact)for(let i=0;i<3;i++){c.beginPath();c.ellipse(x,y-5,28+i*17,8+i*3,0,reduced?0:time*2+i,(reduced?0:time*2+i)+4.4);c.strokeStyle='#e2e8a3';c.lineWidth=2.5;c.stroke();}
   }
   if(state.tool==='inlet'){line(c,[sx,sy,905,376],ink,6);line(c,[sx-8,sy,sx+8,sy-3],gold,9);dot(c,906,377,10,gold,ink,3);}
   if(state.tool==='wipes'){line(c,[sx,sy,x,y],ink,4);line(c,[x-18,y,x+18,y],gold,5);line(c,[x-18,y,x-14,y+10,x-8,y+1,x,y+11,x+8,y+1,x+14,y+10,x+18,y],ink,2);}
@@ -162,7 +221,8 @@ function worker(c:C,state:JobState,reduced:boolean){
   line(c,[-17,-85,19,-85],'#ffe596',4);line(c,[0,-100,0,-82],'#c78e3f',4);round(c,-26,-77,10,20,4,'#6b8b6b',ink,2);round(c,-5,-89,15,10,3,'#4e7365',ink,2);dot(c,3,-84,3,'#d9edb1');
   if(state.bogged){line(c,[6,-81,14,-78,19,-80,25,-77],ink,2);}
   c.restore();
-  if(state.started){panel(c,p.x-25,p.y-(p.crouching?82:117),50,19,'#e2e9b8',4);text(c,'BUD',p.x,p.y-(p.crouching?69:104),10,ink,900,'center');}
+  const nearBolt=ARCADE.collectibles.some((token,i)=>!state.work.collectibles[i]&&Math.abs(p.x-token.x)<105);
+  if(state.started&&p.grounded&&!p.crouching&&!nearBolt){panel(c,p.x-25,p.y-145,50,19,'#e2e9b8',4);text(c,'BUD',p.x,p.y-132,10,ink,900,'center');}
   if(moving&&!reduced)for(let i=0;i<3;i++){const t=(p.stride*.065+i/3)%1;oval(c,p.x-p.facing*(18+t*23),WORLD.groundY-1-t*5,2+t*3,1.5+t,'#d6cd8999');}
 }
 function wipes(c:C,state:JobState,time:number,reduced:boolean){
@@ -194,12 +254,52 @@ function worldLabels(c:C,state:JobState,time:number,reduced:boolean){
   panel(c,bx,82,width,30,near?'#ffe2a0':'#dde7bb',5);text(c,caption,bx+width/2,102,12,ink,900,'center');
   if(!near){text(c,'WALK OVER TO INTERACT',bx+width/2,128,8,'#426a60',900,'center');}
 }
+function crewTokens(c:C,state:JobState,time:number,reduced:boolean){
+  if(state.stage==='INVOICE')return;
+  ARCADE.collectibles.forEach((token,i)=>{
+    if(state.work.collectibles[i])return;
+    const bob=reduced?0:Math.sin(time*2+i)*3;
+    oval(c,token.x,token.y+31,16,4,'#28423733');
+    c.save();c.translate(token.x,token.y+bob);
+    dot(c,0,0,15,'#fff0a333');
+    poly(c,[-7,-10,5,-10,11,-4,11,5,5,11,-7,11,-12,5,-12,-4],gold,ink,2.3);
+    poly(c,[-4,-4,4,-4,6,0,3,5,-4,5,-6,0],'#a56a30',ink,1.5);
+    line(c,[-6,-7,3,-7],'#fff0a3',2);c.restore();
+    if(state.started&&Math.abs(state.player.x-token.x)<105&&state.player.grounded){
+      text(c,'JUMP FOR A CREW BOLT',token.x,token.y-23,8.5,'#234e49',900,'center');
+    }
+  });
+}
+function milestoneToast(c:C,state:JobState,reduced:boolean){
+  if(!state.started)return;
+  const milestone=[...state.events].reverse().find(event=>event.kind==='success'&&/Connected\.|Surface cleared|Inlet serviced|Poop smoothie|Bulk pumping|Tank clean|Job complete/.test(event.text));
+  if(!milestone)return;
+  const age=(state.tick-milestone.tick)*CONFIG.step;if(age<0||age>2.25)return;
+  const names:Record<string,string>={SCUM:'CONNECTED. LET’S CLEAN.',INLET:'SURFACE CLEAR!',DRAWDOWN:'INLET CLEAR!',MIX:'MIX IT UP!',SLURRY:'SMELLS LIKE MONEY!',WASH:'BULK PUMPING DONE!',FINAL_PUMP:'FINAL SWEEP!',CLEANUP:'SQUEAKY CLEAN!',INVOICE:'JOB COMPLETE!'};
+  const title=names[state.stage];if(!title)return;
+  c.save();if(!reduced)c.globalAlpha=Math.min(1,(2.25-age)*2.5);
+  panel(c,360,23,380,35,'#e6efab',6);text(c,title,550,47,16,ink,950,'center');c.restore();
+}
+
+function rewardPop(c:C,state:JobState,reduced:boolean){
+  const reward=state.work.lastReward;if(!reward)return;
+  const age=(state.tick-reward.tick)*CONFIG.step;if(age<0||age>1.8)return;
+  const rise=reduced?0:Math.min(24,age*18),alpha=reduced?1:Math.min(1,(1.8-age)*2.5);
+  c.save();c.globalAlpha=alpha;
+  const x=Math.max(200,Math.min(880,reward.x)),y=Math.max(102,Math.min(548,reward.y-39-rise));
+  c.font='950 12px "Trebuchet MS", sans-serif';const w=Math.min(290,Math.max(132,c.measureText(reward.text).width+26));
+  c.translate(x,y);if(!reduced)c.rotate(-.035);
+  panel(c,-w/2,-17,w,31,state.work.combo>1?'#e0ed88':'#fff0a7',5);text(c,reward.text,0,3,11.5,ink,950,'center');
+  if(!reduced){for(let i=0;i<8;i++){const a=i*Math.PI/4;const d=20+Math.min(30,age*36);line(c,[Math.cos(a)*d,Math.sin(a)*d,Math.cos(a)*(d+5),Math.sin(a)*(d+5)],i%2?gold:lime,2);}}
+  c.restore();
+}
+
 export function renderScene(canvas:HTMLCanvasElement,state:JobState,options:{reducedMotion:boolean;time:number}):void{
   const dpr=Math.min(window.devicePixelRatio||1,2),rect=canvas.getBoundingClientRect();const w=Math.round(Math.max(1,rect.width)*dpr),h=Math.round(w*HEIGHT/WIDTH);
   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
   const c=canvas.getContext('2d');if(!c)return;c.setTransform(canvas.width/WIDTH,0,0,canvas.height/HEIGHT,0,0);c.clearRect(0,0,WIDTH,HEIGHT);c.lineCap='round';c.lineJoin='round';
   const time=options.reducedMotion?0:options.time;
-  sky(c,time,options.reducedMotion);earth(c);truck(c,state);tank(c,state,time,options.reducedMotion);pipe(c,state);tools(c,state,time,options.reducedMotion);targetZone(c,state,time,options.reducedMotion);wipes(c,state,time,options.reducedMotion);inletSplash(c,state,options.reducedMotion);worker(c,state,options.reducedMotion);worldLabels(c,state,time,options.reducedMotion);
+  sky(c,time,options.reducedMotion);earth(c);truck(c,state);crewTokens(c,state,time,options.reducedMotion);tank(c,state,time,options.reducedMotion);pipe(c,state);tools(c,state,time,options.reducedMotion);targetZone(c,state,time,options.reducedMotion);wipes(c,state,time,options.reducedMotion);inletSplash(c,state,options.reducedMotion);worker(c,state,options.reducedMotion);worldLabels(c,state,time,options.reducedMotion);milestoneToast(c,state,options.reducedMotion);rewardPop(c,state,options.reducedMotion);
 }
 export function targetAt(canvas:HTMLCanvasElement,event:MouseEvent,state?:JobState):Target|null{
   const rect=canvas.getBoundingClientRect(),x=(event.clientX-rect.left)*WIDTH/rect.width,y=(event.clientY-rect.top)*HEIGHT/rect.height;

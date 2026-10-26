@@ -3,7 +3,8 @@ import { CONFIG } from './config';
 import { createJob } from './fixtures';
 import { command, getContextAction } from './commands';
 import { assertInvariants, step } from './simulation';
-import { renderScene, targetAt } from './renderer';
+import { renderScene } from './renderer';
+import { workSpot } from './work';
 import { createUI, type Preferences } from './ui';
 import { FixedStepClock } from './runtime';
 import { GameAudio } from './audio';
@@ -24,6 +25,12 @@ let lastEventText = '';
 let lastFrame = performance.now();
 let lastUI = 0;
 let keyboard: KeyboardBinding | undefined;
+let pendingAim: {x:number;y:number} | null = null;
+let gesture: { pointerId:number; wasActive:boolean; key:string; x:number; y:number; dragged:boolean } | null = null;
+function flushAim() {
+  if (pendingAim && state.started && !state.paused && state.stage !== 'INVOICE') command(state,{type:'aim',...pendingAim});
+  pendingAim = null;
+}
 function tick(dt: number) {
   const previousStage = state.stage;
   step(state, dt);
@@ -43,7 +50,11 @@ function refresh() {
   }
 }
 function send(cmd: Command) {
-  if (cmd.type !== 'move' && cmd.type !== 'setThrottle' && cmd.type !== 'setAirBreak') keyboard?.clear();
+  if (['selectTool','pause','resume','start','stop','continueMix','stow','closeLid','invoice'].includes(cmd.type)) keyboard?.clear();
+  else if (cmd.type === 'toggleActive' || cmd.type === 'interact') {
+    const stopping = state.active && (cmd.type === 'toggleActive' || getContextAction(state).command.type === 'stop');
+    if (stopping) keyboard?.clear(); else keyboard?.releaseMovement();
+  }
   void audio.unlock();
   const success = command(state,cmd);
   if (success && cmd.type === 'sayPhrase') audio.sayPhrase();
@@ -52,6 +63,7 @@ function send(cmd: Command) {
 }
 function start(fixture: FixtureName) {
   keyboard?.clear();
+  pendingAim = null; gesture = null;
   state = createJob(fixture); command(state, {type:'start'});
   clock.reset(); lastFrame=performance.now(); lastEventTick=-1; lastEventText='';
   ui.closeDialogs(); void audio.unlock(); refresh();
@@ -60,6 +72,7 @@ function start(fixture: FixtureName) {
 function pause() {
   if (!state.started || state.stage === 'INVOICE') return;
   keyboard?.clear();
+  pendingAim = null; gesture = null;
   command(state,{type:'pause'});clock.reset();refresh();ui.showPause();
 }
 function resume() {
@@ -71,29 +84,50 @@ function settings(key: keyof Preferences,value:boolean) {
   audio.setMuted(prefs.muted);if(!prefs.muted)void audio.unlock();refresh();
 }
 keyboard = bindKeyboard(ui.canvas,send,pause,()=>state);
-ui.canvas.addEventListener('click',e=>{
-  if (!state.started || state.paused || state.stage === 'INVOICE') return;
-  const target = targetAt(ui.canvas,e,state);
-  if (target) {
-    if (state.active && target === state.target) send({type:'stop'});
-    else {
-      send({type:'selectTarget',target});
-      send({type:'toggleActive'});
-    }
-  } else {
-    const rect = ui.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * 1100 / rect.width;
-    const y = (e.clientY - rect.top) * 660 / rect.height;
-    const context = getContextAction(state);
-    if (y >= 160 && y <= 310 && Math.abs(x-context.x) <= 80) send({type:'interact'});
-  }
+function pointerPoint(event: PointerEvent) {
+  const rect = ui.canvas.getBoundingClientRect();
+  return { x:(event.clientX-rect.left)*1100/rect.width, y:(event.clientY-rect.top)*660/rect.height };
+}
+const inTank = (p: {x:number;y:number}) => p.x >= 195 && p.x <= 937 && p.y >= 337 && p.y <= 568;
+ui.canvas.addEventListener('pointerdown',event=>{
+  if (event.button !== 0 || !state.started || state.paused || state.stage === 'INVOICE') return;
+  const point = pointerPoint(event);
   ui.canvas.focus({preventScroll:true});
+  if (inTank(point)) {
+    event.preventDefault();
+    gesture = {pointerId:event.pointerId,wasActive:state.active,key:workSpot(state).key,...point,dragged:false};
+    pendingAim=point; flushAim();
+    if (!state.active) send({type:'toggleActive'});
+    ui.canvas.setPointerCapture(event.pointerId);
+    refresh();
+  } else {
+    const context=getContextAction(state);
+    if(point.y>=160&&point.y<=310&&Math.abs(point.x-context.x)<=80) send({type:'interact'});
+  }
+});
+ui.canvas.addEventListener('pointermove',event=>{
+  if (!state.started || state.paused || state.stage === 'INVOICE') return;
+  const point=pointerPoint(event);
+  if(inTank(point)) pendingAim=point;
+  if(gesture&&Math.hypot(point.x-gesture.x,point.y-gesture.y)>9) gesture.dragged=true;
+});
+ui.canvas.addEventListener('pointerup',event=>{
+  if(!gesture || gesture.pointerId!==event.pointerId)return;
+  flushAim();
+  if(gesture.wasActive&&!gesture.dragged&&gesture.key===workSpot(state).key&&state.active) send({type:'stop'});
+  gesture=null;
+  if(ui.canvas.hasPointerCapture(event.pointerId))ui.canvas.releasePointerCapture(event.pointerId);
+});
+ui.canvas.addEventListener('pointercancel',()=>{
+  pendingAim=null;gesture=null;
+  if(state.active)send({type:'stop'});
 });
 window.addEventListener('blur',pause);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 window.addEventListener('resize',refresh);
 function frame(now:number) {
   const delta=(now-lastFrame)/1000;lastFrame=now;
+  flushAim();
   clock.advance(delta,state.paused||!state.started||state.stage==='INVOICE');
   renderScene(ui.canvas,state,{reducedMotion:prefs.reducedMotion,time:state.elapsed});
   if(now-lastUI>=100){refresh();lastUI=now;}
@@ -106,6 +140,7 @@ if(import.meta.env.DEV){
     snapshot:():JobState=>structuredClone(state),
     advance:(seconds:number)=>{
       if(!Number.isFinite(seconds)||seconds<0||seconds>120)throw new Error('Test clock accepts 0–120 seconds per batch.');
+      flushAim();
       for(let i=0;i<Math.round(seconds/CONFIG.step);i++) tick(CONFIG.step);
       clock.reset();lastFrame=performance.now();refresh();
     },

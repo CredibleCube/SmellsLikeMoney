@@ -1,7 +1,8 @@
-import { CONFIG, WORLD } from './config';
+import { ARCADE, CONFIG, WORLD } from './config';
 import { actionReason } from './commands';
 import { clearMovement, updatePlayer } from './movement';
 import { awardFee, emit } from './events';
+import { awardWork, collectCrewTokens, columnAt, materialSpots, resetAim, wallSpots, workSpot } from './work';
 import type { JobState, Stage } from './types';
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
@@ -33,11 +34,13 @@ function transition(state: JobState, stage: Stage, message: string): void {
   clearMovement(state);
   state.active = false;
   state.flow = 0;
+  state.work.boost = false;
   emit(state, message, 'success');
   if (stage === 'INLET') { state.tool = 'inlet'; state.target = 'inlet'; }
   if (stage === 'DRAWDOWN') { state.tool = 'vacuum'; state.target = 'liquid'; }
   if (stage === 'SLURRY') { state.tool = 'vacuum'; state.target = 'liquid'; }
   if (stage === 'WASH') { state.tool = 'hose'; state.target = 'wall0'; }
+  resetAim(state);
 }
 
 function advance(state: JobState): void {
@@ -45,10 +48,12 @@ function advance(state: JobState): void {
   if (state.stage === 'SETUP' && state.lidOpen && state.connected) {
     transition(state, 'SCUM', 'Connected. Vacuum the floating skum; watch for wipes.');
   } else if (state.stage === 'SCUM' && m.S <= 1 && state.wipes.status === 'disposed') {
+    for (const spot of materialSpots(state, 'scum')) if (spot.remaining <= 1) awardWork(state, spot.key, 'SKUM POCKET CLEAR', spot.x, spot.y);
     transition(state, 'INLET', 'Surface cleared. Inspect the inlet T before clearing it.');
   } else if (state.stage === 'INLET' && state.inlet.cleared && m.PW <= 1e-9 && m.PS <= 1e-9) {
     transition(state, 'DRAWDOWN', 'Inlet serviced. Draw water down toward the mixing band, then continue.');
   } else if (state.stage === 'MIX' && m.U <= 0.5) {
+    for (const spot of materialSpots(state, 'settled')) if (spot.remaining <= 0.5) awardWork(state, spot.key, 'CRUST BUSTED', spot.x, spot.y);
     state.tutorial.mixed = true;
     transition(state, 'SLURRY', 'Poop smoothie ready. Smells like money! Vacuum the mixed slurry.');
   } else if (state.stage === 'SLURRY' && m.W + m.M <= 10 && m.U <= 0.5 && m.S <= 1) {
@@ -69,49 +74,61 @@ function releaseInlet(state: JobState, dt: number): void {
   const water = amount * m.PW / parcel;
   const solids = amount - water;
   m.PW -= water; m.PS -= solids;
-  m.W += water; m.U += solids;
+  m.W += water; m.U += solids; state.work.settled[3] += solids;
   state.inlet.releaseElapsed += dt;
   // Floating-point residue is transferred, never discarded.
   if (m.PW + m.PS < 1e-10) {
-    m.W += m.PW; m.U += m.PS; m.PW = 0; m.PS = 0;
+    m.W += m.PW; m.U += m.PS; state.work.settled[3] += m.PS; m.PW = 0; m.PS = 0;
   }
 }
 
 function vacuum(state: JobState, dt: number): void {
-  const m = state.materials;
+  const m = state.materials, spatial = state.work;
+  let column = spatial.aim.column;
   const mode = state.stage === 'SCUM' ? 'scum' : state.stage === 'DRAWDOWN' || state.stage === 'INLET' ? 'water' : 'slurry';
+  // Tiny completion residues are still real material; choose their actual source.
+  if (mode === 'slurry' && m.M <= CONFIG.epsilon && spatial.suspended[column] <= 0) {
+    const remainingColumn = spatial.suspended.findIndex(n => n > 0);
+    if (remainingColumn >= 0) column = remainingColumn;
+  }
+  const sourceAvailable = mode === 'scum' ? spatial.scum[column] > 0 : mode === 'water' ? m.W > 0 : m.M <= CONFIG.epsilon || spatial.suspended[column] > 0;
   const fraction = mode === 'scum' ? 0.75 : mode === 'water' ? 0 : m.W + m.M > 0 ? m.M / (m.W + m.M) : 0;
-  const load = state.throttle * (1 - state.airBreak) * (1 + 0.35 * fraction);
+  const load = sourceAvailable ? state.throttle * (1 - state.airBreak) * (1 + 0.35 * fraction) * (spatial.boost ? ARCADE.boostLoad : 1) : 0;
   state.load = load;
   const heatBefore = state.heat;
   state.heat = clamp(state.heat + (load > 0.98 ? 40 : -25) * dt, 0, 100);
-  if (heatBefore < 40 && state.heat >= 40) emit(state, 'Pump straining. Open the air break a little or lower throttle.', 'warning');
+  if (heatBefore < 40 && state.heat >= 40) emit(state, 'Pump straining. Release boost, open the air break a little, or lower throttle.', 'warning');
   if (!state.bogged && state.heat >= 80) {
-    state.bogged = true;
-    emit(state, 'Pump bogged. Lower throttle, add an air break, or stop to cool it.', 'warning');
+    state.bogged = true; spatial.bogs += 1;
+    emit(state, 'Pump bogged. Release boost, lower throttle, add an air break, or stop to cool it.', 'warning');
   }
   if (state.bogged && state.heat <= 30) {
     state.bogged = false;
     emit(state, 'Pump recovered. A little air keeps it happy.', 'success');
   }
   const efficiency = clamp(1 - 2 * Math.max(0, state.airBreak - 0.25), 0.2, 1);
-  const request = CONFIG.baseFlow * state.throttle * efficiency * (state.bogged ? 0.35 : 1) * dt;
+  const request = CONFIG.baseFlow * state.throttle * efficiency * (state.bogged ? 0.35 : 1) * (spatial.boost ? ARCADE.boostFlow : 1) * dt;
   let removed = 0;
   if (mode === 'scum') {
-    const total = Math.min(request, m.S / 0.75, m.W / 0.25);
-    const solids = Math.min(m.S, total * 0.75), water = Math.min(m.W, total * 0.25);
+    const local = spatial.scum[column];
+    const total = Math.min(request, local / 0.75, m.S / 0.75, m.W / 0.25);
+    const solids = Math.min(local, m.S, total * 0.75), water = Math.min(m.W, total * 0.25);
+    spatial.scum[column] -= solids;
     m.S -= solids; m.W -= water; m.CS += solids; m.CW += water;
     state.scumRemoved += solids;
-    removed = total;
-    if (state.wipes.status === 'waiting' && state.scumRemoved >= 20) {
+    removed = solids + water;
+    if (solids > 0 && spatial.scum[column] <= 1e-8) {
+      const spot = materialSpots(state, 'scum')[column]; awardWork(state, spot.key, 'SKUM POCKET CLEAR', spot.x, spot.y);
+    }
+    if (state.wipes.status === 'waiting' && state.scumRemoved + 1e-9 >= 20) {
       state.wipes.status = 'approaching';
       emit(state, `${state.wipes.count} wipes approaching! Stop suction and remove them, or the hose will clog.`, 'warning');
     }
-    if (state.wipes.status === 'approaching') {
+    if (state.wipes.status === 'approaching' && removed > 0) {
       state.wipes.approach += dt;
       if (state.wipes.approach + 1e-9 >= state.wipes.warningSeconds) {
-        state.wipes.status = 'in_hose'; state.active = false;
-        emit(state, 'Hose clogged! Bulk material is safe. Stop pump and clear hose with the wipe tool.', 'warning');
+        state.wipes.status = 'in_hose'; state.active = false; spatial.boost = false; spatial.clogs += 1;
+        emit(state, 'Hose clogged! Bulk material is safe. Press E to clear the hose.', 'warning');
       }
     }
   } else if (mode === 'water') {
@@ -119,10 +136,26 @@ function vacuum(state: JobState, dt: number): void {
     m.W -= removed; m.CW += removed;
   } else {
     const total = m.W + m.M;
-    removed = Math.min(request, total);
-    const water = removed === total ? m.W : total > 0 ? removed * m.W / total : 0;
-    const solids = removed === total ? m.M : Math.min(m.M, removed - water);
-    m.W -= water; m.M -= solids; m.CW += water; m.CS += solids;
+    if (m.M <= 0) {
+      removed = Math.min(request, m.W); m.W -= removed; m.CW += removed;
+    } else {
+      let local = spatial.suspended[column];
+      // Resolve only floating-point partition dust, never delete bulk material.
+      if (local <= 0 && m.M <= CONFIG.epsilon && spatial.suspended.every(n => n <= 0)) {
+        local = m.M; spatial.suspended[column] = local;
+      }
+      const share = m.M / total;
+      const limit = local / share;
+      const volume = Math.min(request, total, limit);
+      const solids = volume === limit ? local : Math.min(local, m.M, volume * share);
+      const water = Math.min(m.W, solids * m.W / m.M);
+      spatial.suspended[column] -= solids;
+      m.W -= water; m.M -= solids; m.CW += water; m.CS += solids;
+      removed = solids + water;
+      if (solids > 0 && spatial.suspended[column] <= 1e-8) {
+        const spot = materialSpots(state, 'suspended')[column]; awardWork(state, spot.key, 'SLURRY CLOUD CLEAR', spot.x, spot.y);
+      }
+    }
   }
   state.flow = state.wipes.status === 'in_hose' ? 0 : removed / dt;
 }
@@ -150,8 +183,14 @@ function work(state: JobState, dt: number): void {
     }
   } else if (state.tool === 'mixer') {
     const amount = Math.min(m.U, CONFIG.mixRate * dt);
-    m.U -= amount; m.M += amount;
-    state.flow = amount / dt;
+    const column = state.work.aim.column;
+    const localAmount = Math.min(amount, state.work.settled[column]);
+    state.work.settled[column] -= localAmount; state.work.suspended[column] += localAmount;
+    m.U -= localAmount; m.M += localAmount;
+    if (localAmount > 0 && state.work.settled[column] <= 1e-8) {
+      const spot = materialSpots(state, 'settled')[column]; awardWork(state, spot.key, 'CRUST BUSTED', spot.x, spot.y);
+    }
+    state.flow = localAmount / dt;
   } else if (state.tool === 'hose') {
     const free = Math.max(0, CONFIG.capacity - tankTotal(state));
     const water = Math.min(free, CONFIG.hoseRate * dt);
@@ -159,8 +198,13 @@ function work(state: JobState, dt: number): void {
     state.flow = water / dt;
     if (state.target.startsWith('wall') && (state.stage === 'WASH' || state.stage === 'FINAL_PUMP')) {
       const index = Number(state.target.slice(-1));
-      const residue = Math.min(m.walls[index], CONFIG.washRate * dt * (water / (CONFIG.hoseRate * dt)));
+      const patch = state.work.aim.patch;
+      const residue = Math.min(m.walls[index], state.work.wallPatches[index][patch], CONFIG.washRate * dt * (water / (CONFIG.hoseRate * dt)));
+      state.work.wallPatches[index][patch] -= residue;
       m.walls[index] -= residue; m.M += residue;
+      const spot = wallSpots(state).find(spot => spot.target === state.target && spot.patch === patch)!;
+      state.work.suspended[columnAt(spot.x)] += residue;
+      if (residue > 0 && state.work.wallPatches[index][patch] <= 1e-8) awardWork(state, spot.key, 'PATCH CLEAN', spot.x, spot.y);
       if (wallTotal(state) <= 2 && m.walls.every((r, i) => r <= CONFIG.initialWalls[i] * 0.15)) state.tutorial.washed = true;
     }
   }
@@ -173,6 +217,9 @@ export function step(state: JobState, dt: number = CONFIG.step): void {
   state.elapsed += dt;
   state.flow = 0;
   updatePlayer(state, dt);
+  collectCrewTokens(state);
+  if (state.work.lastClearTick !== null && (state.tick - state.work.lastClearTick) * CONFIG.step > ARCADE.comboSeconds) state.work.combo = 0;
+  if (['DRAWDOWN','MIX'].includes(state.stage) && state.materials.W + 1e-9 < CONFIG.waterMinimum * (state.materials.U + state.materials.M)) state.work.waterRecovery = true;
   const pumping = state.active && state.tool === 'vacuum' && !actionReason(state);
   if (!pumping) {
     state.load = 0;
@@ -186,6 +233,7 @@ export function step(state: JobState, dt: number = CONFIG.step): void {
     const reason = actionReason(state);
     if (reason) {
       state.active = false;
+      state.work.boost = false;
       emit(state, reason, 'warning');
     } else work(state, dt);
   }
@@ -195,11 +243,16 @@ export function step(state: JobState, dt: number = CONFIG.step): void {
 
 export function assertInvariants(state: JobState): void {
   const m = state.materials;
-  const numbers = [m.W,m.S,m.U,m.M,m.CW,m.CS,m.PW,m.PS,m.A,...m.walls,state.heat,state.elapsed,state.flow,state.load,state.throttle,state.airBreak,state.tick,state.seed,state.rng,state.scumRemoved,state.initialSolids,state.inlet.strength,state.inlet.initialStrength,state.inlet.releaseElapsed,state.wipes.progress,state.wipes.approach,state.wipes.warningSeconds,state.wipes.count,state.wipes.disposed,...state.fees.map(fee => fee.amount)];
+  const numbers = [m.W,m.S,m.U,m.M,m.CW,m.CS,m.PW,m.PS,m.A,...m.walls,state.heat,state.elapsed,state.flow,state.load,state.throttle,state.airBreak,state.tick,state.seed,state.rng,state.scumRemoved,state.initialSolids,state.inlet.strength,state.inlet.initialStrength,state.inlet.releaseElapsed,state.wipes.progress,state.wipes.approach,state.wipes.warningSeconds,state.wipes.count,state.wipes.disposed,state.work.score,state.work.combo,state.work.bestCombo,state.work.clogs,state.work.bogs,...state.work.scum,...state.work.settled,...state.work.suspended,...state.work.wallPatches.flat(),...state.fees.map(fee => fee.amount)];
   if (numbers.some(value => !Number.isFinite(value) || value < -CONFIG.epsilon)) throw new Error('Nonfinite or negative simulation quantity');
   const p = state.player;
-  if ([p.x, p.y, p.vx, p.vy, p.stride].some(value => !Number.isFinite(value))) throw new Error('Nonfinite player quantity');
+  if ([p.x, p.y, p.vx, p.vy, p.stride, p.jumpBuffer].some(value => !Number.isFinite(value))) throw new Error('Nonfinite player quantity');
   if (p.x < WORLD.minX - CONFIG.epsilon || p.x > WORLD.maxX + CONFIG.epsilon || p.y > WORLD.groundY + CONFIG.epsilon) throw new Error('Player left the outside path');
+  const sum = (values: number[]) => values.reduce((total, n) => total + n, 0);
+  for (const [label, local, global] of [['scum', sum(state.work.scum), m.S], ['settled', sum(state.work.settled), m.U], ['suspended', sum(state.work.suspended), m.M], ...state.work.wallPatches.map((parts, i) => [`wall${i}`, sum(parts), m.walls[i]])] as [string,number,number][]) {
+    if (Math.abs(local-global) > CONFIG.epsilon) throw new Error(`Spatial ${label} mismatch: ${local} vs ${global}`);
+  }
+  if (new Set(state.work.cleared).size !== state.work.cleared.length) throw new Error('Duplicate cleanup award');
   const water = m.W + m.CW + m.PW;
   const solids = m.S + m.U + m.M + wallTotal(state) + m.CS + m.PS;
   if (Math.abs(water - (550 + m.A)) > CONFIG.epsilon) throw new Error(`Water ledger mismatch: ${water} vs ${550 + m.A}`);

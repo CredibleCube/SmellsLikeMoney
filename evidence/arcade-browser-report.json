@@ -1,0 +1,114 @@
+{
+  "generatedAt": "2026-10-26T22:20:50.894Z",
+  "checks": [
+    {
+      "name": "Three optional jump bolts award unique score without material or invoice changes",
+      "detail": ""
+    },
+    {
+      "name": "Scene, context action, tool-use button, and toolbelt fit the default desktop view",
+      "detail": ""
+    },
+    {
+      "name": "A fixed suction spot exhausts locally and cannot clear the other three skum pockets",
+      "detail": ""
+    },
+    {
+      "name": "Q changes the aimed dirty pocket; vacuum changes only that local pocket",
+      "detail": ""
+    },
+    {
+      "name": "Held Shift and button boost increase flow, build heat, bog recoverably, and release without a stuck boost",
+      "detail": ""
+    },
+    {
+      "name": "Continuous pointer aiming moves active spray across three local wall patches without cleaning neighboring walls",
+      "detail": ""
+    },
+    {
+      "name": "Cleared-patch points are awarded once; spraying a clean patch cannot farm score",
+      "detail": ""
+    },
+    {
+      "name": "Active aiming, boosts, pickups, and patch combos finish at an unchanged 575-credit invoice",
+      "detail": "190.3 active seconds; 7400 unpriced points; 11 keyboard aim changes"
+    },
+    {
+      "name": "No uncaught browser exceptions or console errors",
+      "detail": ""
+    }
+  ],
+  "failures": [],
+  "errors": [],
+  "compact": [
+    {
+      "selector": "#scene",
+      "x": 273,
+      "y": 166,
+      "width": 760,
+      "height": 456
+    },
+    {
+      "selector": "#interact",
+      "x": 49,
+      "y": 631,
+      "width": 339.921875,
+      "height": 44
+    },
+    {
+      "selector": "#activate",
+      "x": 398.921875,
+      "y": 631,
+      "width": 309.03125,
+      "height": 44
+    },
+    {
+      "selector": "[data-tool=\"hose\"]",
+      "x": 42,
+      "y": 514.5,
+      "width": 96,
+      "height": 57
+    }
+  ],
+  "method": "Native WASD/Shift/Q/Space/E and real pointer movement; read-only snapshots; development bridge advances fixed simulation time and asserts ledgers every tick.",
+  "final": {
+    "elapsed": 190.26666666671022,
+    "score": 7400,
+    "bestCombo": 5,
+    "aimActions": 11,
+    "fees": [
+      {
+        "key": "excess_wipes",
+        "label": "Excess wipe removal",
+        "amount": 75
+      },
+      {
+        "key": "inlet_clear",
+        "label": "Inlet T clearing",
+        "amount": 50
+      },
+      {
+        "key": "base_service",
+        "label": "Base pumping service",
+        "amount": 450
+      }
+    ],
+    "materials": {
+      "W": 1.4733218262614616,
+      "S": 0.9199999999989651,
+      "U": 0.3999999999995403,
+      "M": 0.6523365135423782,
+      "CW": 639.7266781736745,
+      "CS": 288.0276634864389,
+      "PW": 0,
+      "PS": 0,
+      "A": 91.20000000000076,
+      "walls": [
+        3.341771304121721e-14,
+        3.186340080674199e-14,
+        1.509903313490213e-14,
+        1.509903313490213e-14
+      ]
+    }
+  }
+}
