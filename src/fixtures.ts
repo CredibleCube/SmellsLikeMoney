@@ -1,4 +1,4 @@
-import { CONFIG } from './config';
+import { CONFIG, WORLD } from './config';
 import type { FixtureName, JobState } from './types';
 export function createJob(fixture: FixtureName = 'normal'): JobState {
   const seed = fixture === 'normal' ? 101 : 202;
@@ -7,6 +7,7 @@ export function createJob(fixture: FixtureName = 'normal'): JobState {
     schemaVersion: 1, jobId: `yard-${seed}`, fixture, seed, rng: seed,
     tick: 0, elapsed: 0, stage: 'SETUP', tool: 'vacuum', target: 'surface',
     active: false, paused: false, started: false,
+    player: { x: WORLD.startX, y: WORLD.groundY, vx: 0, vy: 0, facing: 1, grounded: true, crouching: false, stride: 0, jumpQueued: false, input: { left: false, right: false, up: false, down: false } },
     materials: { W: 520, S: 80, U: 160, M: 0, CW: 0, CS: 0, PW: 30, PS: 10, A: 0, walls: [...CONFIG.initialWalls] },
     lidOpen: false, connected: false, stowed: false, lidClosed: false,
     throttle: CONFIG.throttle, airBreak: CONFIG.airBreak, heat: 0, bogged: false, load: 0, flow: 0,

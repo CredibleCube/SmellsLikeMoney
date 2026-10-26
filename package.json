@@ -1,6 +1,6 @@
 {
   "name": "smells-like-money",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:browser": "node scripts/browser-check.mjs",
+    "test:movement-browser": "node scripts/movement-browser-check.mjs",
     "test:standalone": "node scripts/standalone-check.mjs"
   },
   "devDependencies": {

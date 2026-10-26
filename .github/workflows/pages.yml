@@ -17,12 +17,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+      - name: Read game version
+        id: package
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+          JS
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run build:standalone
@@ -48,15 +58,18 @@ jobs:
       - name: Verify published game
         env:
           SITE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
         run: |
           curl --fail --silent --show-error --location \
             --retry 8 --retry-delay 5 --retry-all-errors \
-            "$SITE_URL" --output "$RUNNER_TEMP/smells-live.html"
+            "$SITE_URL?v=$EXPECTED_VERSION" --output "$RUNNER_TEMP/smells-live.html"
           python3 - "$RUNNER_TEMP/smells-live.html" <<'PY'
-          import sys
+          import os, sys
           from pathlib import Path
           html = Path(sys.argv[1]).read_text()
           for marker in ['<title>Smells Like Money', 'Clock in', 'canvas id="scene"', '<script type="module">']:
               assert marker in html, f'Published game is missing: {marker}'
-          print('Published game returned HTTP 200 with the complete embedded application.')
+          version = os.environ['EXPECTED_VERSION']
+          assert f'<meta name="application-version" content="{version}">' in html, 'Published game is an older version'
+          print(f'Published game returned HTTP 200 with the complete embedded application, version {version}.')
           PY

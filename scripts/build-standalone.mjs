@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dist = resolve(root, 'dist');
@@ -39,10 +40,27 @@ await writeFile(resolve(output, 'OPEN-ME.txt'), [
   '',
   'No installation, server, internet connection, account, or API key is needed.',
   'Choose Clock in to start. How to play reopens the instructions.',
+  'A/D or Left/Right walk; W/Up jumps; S/Down crouches.',
+  'Stand near the hatch, inlet, or truck and press E to interact.',
+  'Mouse clicks aim/use tools; Space operates, 1-5 equip, Q cycles targets.',
   'All tools are click-to-start/click-to-stop; sound is optional.',
   'No mid-job saves: reloading returns to the title screen.',
   '',
   'This is a fictional outside-only game, not equipment or safety training.',
   '',
 ].join('\n'));
-console.log(`Created release/Smells-Like-Money.html (${Buffer.byteLength(html)} bytes), with no external assets.`);
+// Python's standard-library ZIP writer keeps the downloadable bundle in sync
+// with the exact HTML just built. Fixed metadata makes unchanged builds stable.
+execFileSync('python3', ['-c', [
+  'from pathlib import Path',
+  'from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED',
+  'import sys',
+  'folder = Path(sys.argv[1])',
+  'with ZipFile(folder / "Smells-Like-Money.zip", "w") as archive:',
+  '    for name in ["Smells-Like-Money.html", "OPEN-ME.txt"]:',
+  '        info = ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))',
+  '        info.compress_type = ZIP_DEFLATED',
+  '        info.external_attr = 0o100644 << 16',
+  '        archive.writestr(info, (folder / name).read_bytes())',
+].join('\n'), output], { stdio: 'inherit' });
+console.log(`Created release/Smells-Like-Money.html (${Buffer.byteLength(html)} bytes) and matching ZIP, with no external assets.`);

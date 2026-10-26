@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-10-26T20:33:38.982Z",
+  "checks": [
+    "WASD left/right hold, release, facing, and acceleration",
+    "Arrow movement aliases remain held until every alias is released",
+    "W and Up jump with gravity, landing, and no automatic bunny hopping",
+    "S and Down crouch, with slower directional movement",
+    "World boundaries, outside-only ground, spatial interaction guard, and unchanged material ledger",
+    "Nearby E context opens the hatch and connects the hose through normal stage guards",
+    "Clicked context, tool-use, and toolbelt controls immediately return WASD focus to the arena",
+    "Sliders/selects keep native arrows and letters; Q aims without walking",
+    "Space operates the selected tool; walking stops work and moving workers cannot bypass tool guards",
+    "Mouse click aims and fires in the scene; a second click stops the active target",
+    "Pause freezes physics and resumes with every direction released",
+    "Emulated blur and hidden-tab events release movement and require explicit resume",
+    "Confirmed restart restores spawn, physics, inputs, tools, and material accounts",
+    "No uncaught browser exceptions or console errors"
+  ],
+  "failures": [],
+  "errors": [],
+  "method": "Real WASD/arrows/E/Space/Q key events and visible native controls; fixed-step time acceleration only; focus/visibility handlers explicitly emulated."
+}

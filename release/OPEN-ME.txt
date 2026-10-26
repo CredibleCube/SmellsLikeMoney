@@ -7,6 +7,9 @@ the file and open it in your browser instead of using that preview.
 
 No installation, server, internet connection, account, or API key is needed.
 Choose Clock in to start. How to play reopens the instructions.
+A/D or Left/Right walk; W/Up jumps; S/Down crouches.
+Stand near the hatch, inlet, or truck and press E to interact.
+Mouse clicks aim/use tools; Space operates, 1-5 equip, Q cycles targets.
 All tools are click-to-start/click-to-stop; sound is optional.
 No mid-job saves: reloading returns to the title screen.
 

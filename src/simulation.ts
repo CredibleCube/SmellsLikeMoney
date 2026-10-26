@@ -1,5 +1,6 @@
-import { CONFIG } from './config';
+import { CONFIG, WORLD } from './config';
 import { actionReason } from './commands';
+import { clearMovement, updatePlayer } from './movement';
 import { awardFee, emit } from './events';
 import type { JobState, Stage } from './types';
 
@@ -29,6 +30,7 @@ export function finalChecks(state: JobState): { label: string; ok: boolean; hint
 
 function transition(state: JobState, stage: Stage, message: string): void {
   state.stage = stage;
+  clearMovement(state);
   state.active = false;
   state.flow = 0;
   emit(state, message, 'success');
@@ -170,6 +172,7 @@ export function step(state: JobState, dt: number = CONFIG.step): void {
   state.tick += 1;
   state.elapsed += dt;
   state.flow = 0;
+  updatePlayer(state, dt);
   const pumping = state.active && state.tool === 'vacuum' && !actionReason(state);
   if (!pumping) {
     state.load = 0;
@@ -194,6 +197,9 @@ export function assertInvariants(state: JobState): void {
   const m = state.materials;
   const numbers = [m.W,m.S,m.U,m.M,m.CW,m.CS,m.PW,m.PS,m.A,...m.walls,state.heat,state.elapsed,state.flow,state.load,state.throttle,state.airBreak,state.tick,state.seed,state.rng,state.scumRemoved,state.initialSolids,state.inlet.strength,state.inlet.initialStrength,state.inlet.releaseElapsed,state.wipes.progress,state.wipes.approach,state.wipes.warningSeconds,state.wipes.count,state.wipes.disposed,...state.fees.map(fee => fee.amount)];
   if (numbers.some(value => !Number.isFinite(value) || value < -CONFIG.epsilon)) throw new Error('Nonfinite or negative simulation quantity');
+  const p = state.player;
+  if ([p.x, p.y, p.vx, p.vy, p.stride].some(value => !Number.isFinite(value))) throw new Error('Nonfinite player quantity');
+  if (p.x < WORLD.minX - CONFIG.epsilon || p.x > WORLD.maxX + CONFIG.epsilon || p.y > WORLD.groundY + CONFIG.epsilon) throw new Error('Player left the outside path');
   const water = m.W + m.CW + m.PW;
   const solids = m.S + m.U + m.M + wallTotal(state) + m.CS + m.PS;
   if (Math.abs(water - (550 + m.A)) > CONFIG.epsilon) throw new Error(`Water ledger mismatch: ${water} vs ${550 + m.A}`);

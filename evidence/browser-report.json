@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-26T19:38:40.489Z",
+  "generatedAt": "2026-10-26T20:33:58.955Z",
   "baseURL": "http://127.0.0.1:5173",
   "checks": [
     {
@@ -39,8 +39,8 @@
       "detail": ""
     },
     {
-      "name": "Normal job to invoice, keyboard only",
-      "detail": "531.6 active seconds; 575 fictional credits"
+      "name": "Normal job to invoice, keyboard-only movement and tools",
+      "detail": "543.8 active seconds; 575 fictional credits"
     },
     {
       "name": "Invoice replay resets the fixture and job ledger",
@@ -64,15 +64,15 @@
     },
     {
       "name": "Challenge dry-tank recovery",
-      "detail": "Drained to 40; added 216.3 units before mixing"
+      "detail": "Drained to 40; added 218.5 units before mixing"
     },
     {
       "name": "Mouse aims at broad side and floor wall regions",
       "detail": ""
     },
     {
-      "name": "Recovery challenge to invoice",
-      "detail": "723.6 active seconds; 575 fictional credits"
+      "name": "Recovery challenge to invoice with station travel",
+      "detail": "739.7 active seconds; 575 fictional credits"
     },
     {
       "name": "Mute and reduced-motion controls remain available",
@@ -96,9 +96,9 @@
     }
   ],
   "failures": [],
-  "method": "DOM keyboard and mouse controls; development-only fixed-step time acceleration, no state edits; lifecycle events explicitly emulated.",
+  "method": "DOM keyboard and mouse controls, held-key station travel, and E context interactions; development-only fixed-step time acceleration, no state edits; lifecycle events explicitly emulated.",
   "normal": {
-    "elapsed": 531.5999999998452,
+    "elapsed": 543.8333333331674,
     "fees": [
       {
         "key": "excess_wipes",
@@ -117,15 +117,15 @@
       }
     ],
     "materials": {
-      "W": 1.1041608148677184,
+      "W": 1.145498506684406,
       "S": 0.9839999999988533,
       "U": 0.46666666667421675,
-      "M": 0.546505851933781,
-      "CW": 629.7625058519928,
-      "CS": 288.00282748133367,
+      "M": 0.5478348266004536,
+      "CW": 632.7878348268644,
+      "CS": 288.00149850676837,
       "PW": 0,
       "PS": 0,
-      "A": 80.8666666666672,
+      "A": 83.93333333333369,
       "walls": [
         0,
         0,
@@ -135,7 +135,7 @@
     }
   },
   "challenge": {
-    "elapsed": 723.6166666663372,
+    "elapsed": 739.7499999996559,
     "fees": [
       {
         "key": "excess_wipes",
@@ -154,18 +154,18 @@
       }
     ],
     "materials": {
-      "W": 1.074086129008411,
-      "S": 0.9840000000002176,
+      "W": 1.1084979217211002,
+      "S": 0.9945000000002695,
       "U": 0.46666666667421675,
-      "M": 0.5392472044247066,
-      "CW": 895.7925805372627,
-      "CS": 288.01008612894066,
+      "M": 0.5376687450187851,
+      "CW": 902.3581687444566,
+      "CS": 288.00116458822487,
       "PW": 0,
       "PS": 0,
-      "A": 346.8666666666521,
+      "A": 353.46666666665175,
       "walls": [
         0,
-        3.262667913617179e-14,
+        0,
         0,
         0
       ]

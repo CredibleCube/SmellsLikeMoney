@@ -82,6 +82,28 @@ try {
     }
     throw new Error(`Timed out after ${limit}s; state ${JSON.stringify(await snapshot())}`);
   };
+  const travel = async destination => {
+    await stop();
+    await page.locator('#scene').focus();
+    const initial = await snapshot();
+    const key = destination >= initial.player.x ? (keyboard ? 'ArrowRight' : 'd') : (keyboard ? 'ArrowLeft' : 'a');
+    await page.keyboard.down(key);
+    for (let i = 0; i < 140; i++) {
+      const current = await snapshot();
+      if (Math.abs(current.player.x - destination) <= 16 || (destination - initial.player.x) * (destination - current.player.x) < 0) break;
+      await advance(0.05);
+    }
+    await page.keyboard.up(key);
+    await advance(0.3);
+    const arrived = await snapshot();
+    assert(Math.abs(arrived.player.x - destination) <= 35, `Worker missed station ${destination}: ${arrived.player.x}`);
+    assert(arrived.player.grounded && !arrived.player.crouching);
+    assert(Math.abs(arrived.player.vx) < 0.01);
+  };
+  const interact = async () => {
+    await page.locator('#scene').focus();
+    await page.keyboard.press('e');
+  };
   const setRange = async (id, value) => {
     // Native keyboard range input: Home starts at 0, then arrows apply the
     // element's configured step, avoiding direct game-state mutation.
@@ -94,20 +116,24 @@ try {
   };
   const start = async fixture => {
     await activate(`[data-fixture="${fixture}"]`);
-    await cmd('openLid');
-    await cmd('connect');
+    await interact();
+    assert((await snapshot()).lidOpen, 'E opens the nearby hatch');
+    await interact();
     await advance(0.1);
     assert.equal((await snapshot()).stage, 'SCUM');
   };
   const finishFromInlet = async ({ challenge, capture }) => {
-    await cmd('inspect');
-    await tool('inlet');
-    await run();
+    await travel(925);
+    await interact();
+    assert((await snapshot()).inlet.inspected, 'E inspects the nearby inlet');
+    await interact();
+    assert((await snapshot()).tool === 'inlet' && (await snapshot()).active, 'E starts the inspected inlet tool');
     await advance(challenge ? 8.05 : 3.05);
     let state = await snapshot();
     assert(state.inlet.cleared, 'Inlet must be cleared');
     if (capture) await shot('04-inlet.png');
     await until(s => s.stage === 'DRAWDOWN', 10, 0.1);
+    await travel(745);
     await tool('vacuum');
     await run();
     const desiredWater = challenge ? 40 : 340;
@@ -170,16 +196,20 @@ try {
     assert(!state.active);
     assert(state.materials.W <= 5);
     assert(state.materials.S + state.materials.U + state.materials.M <= 2);
-    await cmd('stow');
-    await cmd('closeLid');
-    await cmd('invoice');
+    await travel(495);
+    await interact();
+    assert((await snapshot()).stowed, 'E stows tools at the truck');
+    await travel(745);
+    await interact();
+    assert((await snapshot()).lidClosed, 'E closes the nearby hatch');
+    await interact();
     state = await snapshot();
     assert.equal(state.stage, 'INVOICE');
     assert.equal(state.fees.reduce((sum, fee) => sum + fee.amount, 0), 575);
     assert.equal(new Set(state.fees.map(fee => fee.key)).size, 3);
     assert.equal(state.wipes.disposed, challenge ? 8 : 5);
     assert.equal(state.materials.PW + state.materials.PS, 0);
-    log(challenge ? 'Recovery challenge to invoice' : 'Normal job to invoice, keyboard only', `${state.elapsed.toFixed(1)} active seconds; 575 fictional credits`);
+    log(challenge ? 'Recovery challenge to invoice with station travel' : 'Normal job to invoice, keyboard-only movement and tools', `${state.elapsed.toFixed(1)} active seconds; 575 fictional credits`);
     if (capture) await shot('07-invoice.png');
     else await shot('10-challenge-invoice.png');
     return state;
@@ -279,8 +309,8 @@ try {
   const approachBefore = (await snapshot()).wipes.approach;
   await advance(2);
   assert.equal((await snapshot()).wipes.approach, approachBefore);
-  await tool('wipes');
-  await run();
+  await interact();
+  assert((await snapshot()).tool === 'wipes' && (await snapshot()).active, 'E selects and starts wipe removal');
   await advance(2.1);
   assert.equal((await snapshot()).wipes.status, 'disposed');
   log('Wipe warning, stopped timer, and avoided clog');
@@ -376,8 +406,8 @@ try {
   await until(s => s.wipes.status === 'in_hose', 30, 0.25);
   assert.equal((await snapshot()).flow, 0);
   await shot('08-challenge-clog.png');
-  await tool('wipes');
-  await run();
+  await interact();
+  assert((await snapshot()).tool === 'wipes' && (await snapshot()).active, 'E selects and starts hose clearing');
   await advance(2.6);
   assert.equal((await snapshot()).wipes.disposed, 8);
   await tool('vacuum');
@@ -438,7 +468,7 @@ try {
   await rm(new URL('browser-failure.json', evidenceDir), { force: true });
   await writeFile(new URL('browser-report.json', evidenceDir), JSON.stringify({
     generatedAt: new Date().toISOString(), baseURL, checks, failures,
-    method: 'DOM keyboard and mouse controls; development-only fixed-step time acceleration, no state edits; lifecycle events explicitly emulated.',
+    method: 'DOM keyboard and mouse controls, held-key station travel, and E context interactions; development-only fixed-step time acceleration, no state edits; lifecycle events explicitly emulated.',
     normal: { elapsed: normal.elapsed, fees: normal.fees, materials: normal.materials },
     challenge: { elapsed: challenge.elapsed, fees: challenge.fees, materials: challenge.materials },
     limitations: ['Synthesized audio output is headless; audible quality and a physical hidden-tab transition require a human browser check.'],

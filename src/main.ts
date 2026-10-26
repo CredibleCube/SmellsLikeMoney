@@ -1,13 +1,13 @@
 import './style.css';
 import { CONFIG } from './config';
 import { createJob } from './fixtures';
-import { command } from './commands';
+import { command, getContextAction } from './commands';
 import { assertInvariants, step } from './simulation';
 import { renderScene, targetAt } from './renderer';
 import { createUI, type Preferences } from './ui';
 import { FixedStepClock } from './runtime';
 import { GameAudio } from './audio';
-import { bindKeyboard } from './input';
+import { bindKeyboard, type KeyboardBinding } from './input';
 import type { Command, FixtureName, JobState } from './types';
 
 let state = createJob();
@@ -23,7 +23,14 @@ let lastEventTick = -1;
 let lastEventText = '';
 let lastFrame = performance.now();
 let lastUI = 0;
-const clock = new FixedStepClock(dt => { step(state, dt); if (import.meta.env.DEV) assertInvariants(state); });
+let keyboard: KeyboardBinding | undefined;
+function tick(dt: number) {
+  const previousStage = state.stage;
+  step(state, dt);
+  if (previousStage !== state.stage) keyboard?.clear();
+  if (import.meta.env.DEV) assertInvariants(state);
+}
+const clock = new FixedStepClock(tick);
 const ui = createUI({ send, start, pause, resume, restart: () => start(state.fixture), settings });
 function refresh() {
   ui.update(state, prefs);
@@ -36,6 +43,7 @@ function refresh() {
   }
 }
 function send(cmd: Command) {
+  if (cmd.type !== 'move' && cmd.type !== 'setThrottle' && cmd.type !== 'setAirBreak') keyboard?.clear();
   void audio.unlock();
   const success = command(state,cmd);
   if (success && cmd.type === 'sayPhrase') audio.sayPhrase();
@@ -43,6 +51,7 @@ function send(cmd: Command) {
   if (state.stage === 'INVOICE') document.getElementById('invoice-panel')?.scrollIntoView({block:'nearest',behavior:prefs.reducedMotion?'instant':'smooth'});
 }
 function start(fixture: FixtureName) {
+  keyboard?.clear();
   state = createJob(fixture); command(state, {type:'start'});
   clock.reset(); lastFrame=performance.now(); lastEventTick=-1; lastEventText='';
   ui.closeDialogs(); void audio.unlock(); refresh();
@@ -50,6 +59,7 @@ function start(fixture: FixtureName) {
 }
 function pause() {
   if (!state.started || state.stage === 'INVOICE') return;
+  keyboard?.clear();
   command(state,{type:'pause'});clock.reset();refresh();ui.showPause();
 }
 function resume() {
@@ -60,8 +70,25 @@ function settings(key: keyof Preferences,value:boolean) {
   try {localStorage.setItem('slm-preferences',JSON.stringify(prefs));}catch{/* Preference persistence is optional. */}
   audio.setMuted(prefs.muted);if(!prefs.muted)void audio.unlock();refresh();
 }
-bindKeyboard(ui.canvas,send,pause,()=>state);
-ui.canvas.addEventListener('click',e=>{const target=targetAt(ui.canvas,e,state);if(target&&state.started){send({type:'selectTarget',target});ui.canvas.focus({preventScroll:true});}});
+keyboard = bindKeyboard(ui.canvas,send,pause,()=>state);
+ui.canvas.addEventListener('click',e=>{
+  if (!state.started || state.paused || state.stage === 'INVOICE') return;
+  const target = targetAt(ui.canvas,e,state);
+  if (target) {
+    if (state.active && target === state.target) send({type:'stop'});
+    else {
+      send({type:'selectTarget',target});
+      send({type:'toggleActive'});
+    }
+  } else {
+    const rect = ui.canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * 1100 / rect.width;
+    const y = (e.clientY - rect.top) * 660 / rect.height;
+    const context = getContextAction(state);
+    if (y >= 160 && y <= 310 && Math.abs(x-context.x) <= 80) send({type:'interact'});
+  }
+  ui.canvas.focus({preventScroll:true});
+});
 window.addEventListener('blur',pause);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
 window.addEventListener('resize',refresh);
@@ -79,7 +106,7 @@ if(import.meta.env.DEV){
     snapshot:():JobState=>structuredClone(state),
     advance:(seconds:number)=>{
       if(!Number.isFinite(seconds)||seconds<0||seconds>120)throw new Error('Test clock accepts 0–120 seconds per batch.');
-      for(let i=0;i<Math.round(seconds/CONFIG.step);i++){step(state,CONFIG.step);assertInvariants(state);}
+      for(let i=0;i<Math.round(seconds/CONFIG.step);i++) tick(CONFIG.step);
       clock.reset();lastFrame=performance.now();refresh();
     },
   };

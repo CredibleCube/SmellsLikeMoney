@@ -48,6 +48,21 @@ try {
   await page.locator('#resume').click();
   assert.match(await page.locator('#activate').textContent(), /Start vacuum/);
   await page.locator('#scene').focus();
+  await page.keyboard.down('d');
+  await page.clock.runFor(150);
+  assert.equal(await page.locator('#player-status').textContent(), 'ON THE MOVE');
+  await page.keyboard.up('d');
+  await page.clock.runFor(300);
+  await page.keyboard.press('w');
+  await page.clock.runFor(150);
+  assert.equal(await page.locator('#player-status').textContent(), 'AIRBORNE');
+  await page.clock.runFor(1000);
+  await page.keyboard.down('s');
+  await page.clock.runFor(150);
+  assert.equal(await page.locator('#player-status').textContent(), 'CROUCHED');
+  await page.keyboard.up('s');
+  await page.clock.runFor(150);
+  assert.equal(await page.locator('#player-status').textContent(), 'READY TO WORK');
   await page.keyboard.press('Space');
   await page.clock.runFor(500);
   assert.match(await page.locator('#activate').textContent(), /Stop vacuum/);
@@ -56,11 +71,11 @@ try {
   assert.deepEqual(external, []);
   assert.deepEqual(errors, []);
   const report = {
-    source: 'ZIP-extracted standalone HTML; internet offline; storage deliberately denied',
+    source: 'Self-contained production HTML; internet offline; storage deliberately denied',
     documentTransport: fileNavigation ? 'file://' : 'about:blank setContent (exact HTML bytes)',
     limitation: fileNavigation ? null : 'Cloud Chromium blocks file:// by administrator policy; direct local-file navigation remains a user-browser check.',
     titleAndSetup: true, suctionTransfersMaterial: true, pauseAndResume: true,
-    keyboard: true, settingsWithUnavailableStorage: true, productionBridgeAbsent: true,
+    keyboard: true, directMovement: true, settingsWithUnavailableStorage: true, productionBridgeAbsent: true,
     externalRequests: external, browserErrors: errors,
   };
   await writeFile('evidence/standalone-report.json', JSON.stringify(report, null, 2));

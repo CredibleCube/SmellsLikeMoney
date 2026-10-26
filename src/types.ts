@@ -6,10 +6,17 @@ export type WipeStatus = 'waiting' | 'approaching' | 'in_hose' | 'disposed';
 export interface Materials { W: number; S: number; U: number; M: number; CW: number; CS: number; PW: number; PS: number; A: number; walls: number[]; }
 export interface Fee { key: 'base_service' | 'excess_wipes' | 'inlet_clear'; label: string; amount: number; }
 export interface GameEvent { tick: number; text: string; kind: 'info' | 'warning' | 'success'; }
+export type MoveDirection = 'left' | 'right' | 'up' | 'down';
+export interface PlayerState {
+  x: number; y: number; vx: number; vy: number; facing: -1 | 1;
+  grounded: boolean; crouching: boolean; stride: number; jumpQueued: boolean;
+  input: Record<MoveDirection, boolean>;
+}
 export interface JobState {
   schemaVersion: 1; jobId: string; fixture: FixtureName; seed: number; rng: number;
   tick: number; elapsed: number; stage: Stage; tool: Tool; target: Target;
   active: boolean; paused: boolean; started: boolean;
+  player: PlayerState;
   materials: Materials;
   lidOpen: boolean; connected: boolean; stowed: boolean; lidClosed: boolean;
   throttle: number; airBreak: number; heat: number; bogged: boolean; load: number; flow: number;
@@ -20,6 +27,8 @@ export interface JobState {
 }
 export type Command =
   | { type: 'start' }
+  | { type: 'move'; direction: MoveDirection; pressed: boolean }
+  | { type: 'interact' }
   | { type: 'selectTool'; tool: Tool }
   | { type: 'selectTarget'; target: Target }
   | { type: 'setThrottle'; value: number }

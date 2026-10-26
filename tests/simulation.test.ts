@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG } from '../src/config';
+import { CONFIG, WORLD } from '../src/config';
 import { createJob } from '../src/fixtures';
-import { command, actionReason, commandReason } from '../src/commands';
+import { command, actionReason, commandReason, getContextAction } from '../src/commands';
 import { assertInvariants, finalChecks, mixingAllowed, recommendedWater, step, tankTotal, wallTotal } from '../src/simulation';
 import { invoiceTotal } from '../src/events';
+import { stationReason } from '../src/movement';
 import type { Command, FixtureName, JobState, Materials, Target, Tool } from '../src/types';
 
 function send(s: JobState, c: Command): boolean {
@@ -29,14 +30,29 @@ function until(s: JobState, predicate: () => boolean, seconds = 900): void {
 function start(fixture: FixtureName = 'normal'): JobState {
   const s = createJob(fixture);
   expect(send(s, { type: 'start' })).toBe(true);
-  expect(send(s, { type: 'openLid' })).toBe(true);
-  expect(send(s, { type: 'connect' })).toBe(true);
+  expect(getContextAction(s).command.type).toBe('openLid');
+  expect(send(s, { type: 'interact' })).toBe(true);
+  expect(getContextAction(s).command.type).toBe('connect');
+  expect(send(s, { type: 'interact' })).toBe(true);
   ticks(s, 1);
   expect(s.stage).toBe('SCUM');
   return s;
 }
+/** Travel through the public movement commands, then settle before working. */
+function walkTo(s: JobState, x: number): void {
+  send(s, { type: 'stop' });
+  const direction = s.player.x < x ? 'right' : 'left';
+  expect(send(s, { type: 'move', direction, pressed: true })).toBe(true);
+  until(s, () => direction === 'right' ? s.player.x >= x : s.player.x <= x, 10);
+  expect(send(s, { type: 'move', direction, pressed: false })).toBe(true);
+  ticks(s, 30);
+  expect(s.player.grounded).toBe(true);
+  expect(Math.abs(s.player.vx)).toBeLessThanOrEqual(5);
+}
 function activate(s: JobState, tool: Tool, target?: Target): void {
   send(s, { type: 'stop' });
+  const station = tool === 'inlet' ? 'inlet' : 'hatch';
+  if (stationReason(s, station)) walkTo(s, WORLD.stations[station].x);
   send(s, { type: 'selectTool', tool });
   if (target) send(s, { type: 'selectTarget', target });
   expect(actionReason(s)).toBeNull();
@@ -52,8 +68,12 @@ function clearScum(s: JobState, allowClog = false): void {
   until(s, () => s.stage === 'INLET', 70);
 }
 function clearInlet(s: JobState): void {
-  expect(send(s, { type: 'inspect' })).toBe(true);
-  activate(s, 'inlet', 'inlet');
+  walkTo(s, WORLD.stations.inlet.x);
+  expect(getContextAction(s).command.type).toBe('inspect');
+  expect(send(s, { type: 'interact' })).toBe(true);
+  expect(s.inlet.inspected).toBe(true);
+  expect(send(s, { type: 'interact' })).toBe(true);
+  expect(s.active).toBe(true);
   until(s, () => s.stage === 'DRAWDOWN', 15);
   expect(s.inlet.cleared).toBe(true);
   expect(s.materials.PW + s.materials.PS).toBeLessThanOrEqual(CONFIG.epsilon);
@@ -92,9 +112,16 @@ function complete(fixture: FixtureName, recover = false): JobState {
   expect(s.active).toBe(false);
   expect(finalChecks(s).every(c => c.ok)).toBe(true);
   expect(send(s, { type: 'invoice' })).toBe(false);
-  expect(send(s, { type: 'stow' })).toBe(true);
-  expect(send(s, { type: 'closeLid' })).toBe(true);
-  expect(send(s, { type: 'invoice' })).toBe(true);
+  walkTo(s, WORLD.stations.truck.x);
+  expect(getContextAction(s).command.type).toBe('stow');
+  expect(send(s, { type: 'interact' })).toBe(true);
+  expect(s.stowed).toBe(true);
+  walkTo(s, WORLD.stations.hatch.x);
+  expect(getContextAction(s).command.type).toBe('closeLid');
+  expect(send(s, { type: 'interact' })).toBe(true);
+  expect(s.lidClosed).toBe(true);
+  expect(getContextAction(s).command.type).toBe('invoice');
+  expect(send(s, { type: 'interact' })).toBe(true);
   expect(s.stage).toBe('INVOICE');
   return s;
 }
