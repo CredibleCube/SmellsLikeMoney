@@ -1,0 +1,13 @@
+{
+  "source": "ZIP-extracted standalone HTML; internet offline; storage deliberately denied",
+  "documentTransport": "about:blank setContent (exact HTML bytes)",
+  "limitation": "Cloud Chromium blocks file:// by administrator policy; direct local-file navigation remains a user-browser check.",
+  "titleAndSetup": true,
+  "suctionTransfersMaterial": true,
+  "pauseAndResume": true,
+  "keyboard": true,
+  "settingsWithUnavailableStorage": true,
+  "productionBridgeAbsent": true,
+  "externalRequests": [],
+  "browserErrors": []
+}

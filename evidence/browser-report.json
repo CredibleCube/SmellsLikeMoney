@@ -1,0 +1,177 @@
+{
+  "generatedAt": "2026-10-26T19:38:40.489Z",
+  "baseURL": "http://127.0.0.1:5173",
+  "checks": [
+    {
+      "name": "Native Tab order, visible focus ring, and keyboard help dialog",
+      "detail": ""
+    },
+    {
+      "name": "Fixed-step browser frames, Space shortcut, tool switch stop, native-control guard",
+      "detail": ""
+    },
+    {
+      "name": "Mute, motion, and UI scale remain usable inside the paused modal",
+      "detail": ""
+    },
+    {
+      "name": "Pause/resume freezes simulation and releases tools",
+      "detail": ""
+    },
+    {
+      "name": "Help opens and closes with keyboard controls",
+      "detail": ""
+    },
+    {
+      "name": "390px active layout has no overflow and enabled buttons are at least 44px",
+      "detail": ""
+    },
+    {
+      "name": "720px active controls remain usable without horizontal overflow",
+      "detail": ""
+    },
+    {
+      "name": "Restart requires confirmation; cancel preserves progress",
+      "detail": ""
+    },
+    {
+      "name": "Wipe warning, stopped timer, and avoided clog",
+      "detail": ""
+    },
+    {
+      "name": "Normal job to invoice, keyboard only",
+      "detail": "531.6 active seconds; 575 fictional credits"
+    },
+    {
+      "name": "Invoice replay resets the fixture and job ledger",
+      "detail": ""
+    },
+    {
+      "name": "Confirm restart after suction resets materials, timers, events, and fees",
+      "detail": ""
+    },
+    {
+      "name": "Unmute before pumping and mute during active pumping",
+      "detail": ""
+    },
+    {
+      "name": "High-load bogging, reduced throughput, and stopped-pump recovery",
+      "detail": ""
+    },
+    {
+      "name": "Emulated focus loss / hidden tab pauses with no catch-up",
+      "detail": ""
+    },
+    {
+      "name": "Challenge dry-tank recovery",
+      "detail": "Drained to 40; added 216.3 units before mixing"
+    },
+    {
+      "name": "Mouse aims at broad side and floor wall regions",
+      "detail": ""
+    },
+    {
+      "name": "Recovery challenge to invoice",
+      "detail": "723.6 active seconds; 575 fictional credits"
+    },
+    {
+      "name": "Mute and reduced-motion controls remain available",
+      "detail": ""
+    },
+    {
+      "name": "720px responsive layout without horizontal overflow",
+      "detail": ""
+    },
+    {
+      "name": "1280px desktop header settings available",
+      "detail": ""
+    },
+    {
+      "name": "Denied audio context remains playable without uncaught exceptions",
+      "detail": ""
+    },
+    {
+      "name": "No uncaught browser exceptions or console errors",
+      "detail": ""
+    }
+  ],
+  "failures": [],
+  "method": "DOM keyboard and mouse controls; development-only fixed-step time acceleration, no state edits; lifecycle events explicitly emulated.",
+  "normal": {
+    "elapsed": 531.5999999998452,
+    "fees": [
+      {
+        "key": "excess_wipes",
+        "label": "Excess wipe removal",
+        "amount": 75
+      },
+      {
+        "key": "inlet_clear",
+        "label": "Inlet T clearing",
+        "amount": 50
+      },
+      {
+        "key": "base_service",
+        "label": "Base pumping service",
+        "amount": 450
+      }
+    ],
+    "materials": {
+      "W": 1.1041608148677184,
+      "S": 0.9839999999988533,
+      "U": 0.46666666667421675,
+      "M": 0.546505851933781,
+      "CW": 629.7625058519928,
+      "CS": 288.00282748133367,
+      "PW": 0,
+      "PS": 0,
+      "A": 80.8666666666672,
+      "walls": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "challenge": {
+    "elapsed": 723.6166666663372,
+    "fees": [
+      {
+        "key": "excess_wipes",
+        "label": "Excess wipe removal",
+        "amount": 75
+      },
+      {
+        "key": "inlet_clear",
+        "label": "Inlet T clearing",
+        "amount": 50
+      },
+      {
+        "key": "base_service",
+        "label": "Base pumping service",
+        "amount": 450
+      }
+    ],
+    "materials": {
+      "W": 1.074086129008411,
+      "S": 0.9840000000002176,
+      "U": 0.46666666667421675,
+      "M": 0.5392472044247066,
+      "CW": 895.7925805372627,
+      "CS": 288.01008612894066,
+      "PW": 0,
+      "PS": 0,
+      "A": 346.8666666666521,
+      "walls": [
+        0,
+        3.262667913617179e-14,
+        0,
+        0
+      ]
+    }
+  },
+  "limitations": [
+    "Synthesized audio output is headless; audible quality and a physical hidden-tab transition require a human browser check."
+  ]
+}
